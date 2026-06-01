@@ -1,0 +1,9 @@
+# Don't commit large binaries to the repo — they go to GitHub Releases instead
+artifacts/
+*.exe
+*.apk
+*.zip
+
+# OS
+.DS_Store
+Thumbs.db
