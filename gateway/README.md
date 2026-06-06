@@ -10,17 +10,30 @@ Android app reach the whole fleet from anywhere without port-forwarding.
 Android app  ──HTTPS──▶  Cloudflare tunnel  ──▶  this gateway  ──LAN──▶  miners
 ```
 
-Zero npm dependencies — Node.js 18+ only.
+The gateway itself has **zero npm dependencies** — Node.js 18+ only.
 
-## Run
+## Run (Windows — recommended)
 
-```bash
-cp config.example.json config.json   # then edit it
-npm start                             # or: node server.js
-```
+This is designed to run as a **Windows service** on an always-on PC at the site.
 
-Set a long random `token` in `config.json` and the same value in the app
-(**Settings → Connectivity → Access token**).
+1. Install **Node.js 18+** from <https://nodejs.org> (LTS).
+2. Copy `config.example.json` → `config.json` and edit it (miners, and a long
+   random `token`).
+3. Quick test: double-click **`windows\run.bat`** (foreground). Browse to
+   <http://localhost:8787> — you should see a status page listing your miners.
+4. Install as an auto-starting service (so it survives reboots). In an
+   **Administrator** PowerShell:
+   ```powershell
+   cd gateway\windows
+   npm install            # pulls node-windows (service wrapper only)
+   node install-service.js
+   ```
+   A service named **“WLM Gateway”** now runs on boot (manage it in
+   `services.msc`). Remove it later with `node uninstall-service.js`.
+
+Set the same `token` in the app: **Settings → Connectivity → Access token**.
+
+> macOS/Linux: same `config.json`, just `node server.js` (or a systemd unit).
 
 ## API
 
@@ -34,32 +47,34 @@ Set a long random `token` in `config.json` and the same value in the app
 Auth: `Authorization: Bearer <token>`. If you front the tunnel with
 **Cloudflare Access**, the `Cf-Access-Jwt-Assertion` header is also accepted.
 
-## Expose with Cloudflare Tunnel
+## Expose with a Cloudflare Tunnel (Windows)
 
-```bash
-cloudflared tunnel create wlm
-# route a hostname to this gateway:
-cloudflared tunnel route dns wlm miners.welovemining.co.za
+Prerequisite: your domain (e.g. `welovemining.co.za`) is on Cloudflare, and you
+have a Cloudflare Zero Trust account (the free plan is fine).
+
+**1. Create the tunnel in the dashboard** (easiest, token-based):
+Zero Trust → **Networks → Tunnels → Create a tunnel** → *Cloudflared* → name it
+`wlm` → add a **Public Hostname**:
+- Subdomain/Domain: `miners.welovemining.co.za`
+- Service: **HTTP** → `localhost:8787`
+
+Copy the **connector token** it displays.
+
+**2. Install the connector on the Windows box** (Administrator PowerShell):
+```powershell
+cd gateway\windows
+powershell -ExecutionPolicy Bypass -File setup-cloudflared.ps1 -Token "<CONNECTOR_TOKEN>"
 ```
+This downloads `cloudflared.exe` and installs it as a Windows service. Within a
+few seconds the tunnel shows **HEALTHY** in the dashboard.
 
-`~/.cloudflared/config.yml`:
+**3. Point the app at it:** Settings → **Gateway URL** `https://miners.welovemining.co.za`
++ your `token`. With **Connection mode = Auto**, the app talks directly to
+miners on the LAN and falls back to this tunnel when you're away.
 
-```yaml
-tunnel: wlm
-credentials-file: /root/.cloudflared/<tunnel-id>.json
-ingress:
-  - hostname: miners.welovemining.co.za
-    service: http://localhost:8787
-  - service: http_status:404
-```
-
-```bash
-cloudflared tunnel run wlm
-```
-
-Then in the app set **Gateway URL** to `https://miners.welovemining.co.za` and
-your token. With **Connection mode = Auto**, the app uses direct LAN APIs when
-you're on-site and falls back to this gateway when you're away.
+> CLI alternative (if you prefer config files): `cloudflared tunnel login`,
+> `cloudflared tunnel create wlm`, route DNS, and run with an `ingress` mapping
+> `miners.welovemining.co.za → http://localhost:8787`.
 
 ## Supported firmware
 

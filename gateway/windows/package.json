@@ -1,0 +1,14 @@
+{
+  "name": "wlm-gateway-windows-service",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Installs the WLM gateway as an auto-starting Windows service.",
+  "type": "commonjs",
+  "scripts": {
+    "install-service": "node install-service.js",
+    "uninstall-service": "node uninstall-service.js"
+  },
+  "dependencies": {
+    "node-windows": "^1.0.0-beta.8"
+  }
+}
