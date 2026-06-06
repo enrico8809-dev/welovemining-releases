@@ -70,5 +70,5 @@ jobs:
             `.apk` below and tap it (allow "install from unknown sources" if
             prompted). Demo mode is on by default — turn it off in Settings to
             connect to real miners. Debug-signed (not a Play Store build).
-          files: ../dist/WLM-ASIC-Manager-latest.apk
+          files: dist/WLM-ASIC-Manager-latest.apk
           fail_on_unmatched_files: true
