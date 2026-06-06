@@ -16,6 +16,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenu
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
@@ -129,7 +130,7 @@ fun MinerEditorScreen(
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = fwExpanded) },
                     modifier = Modifier.fillMaxWidth().menuAnchor(),
                 )
-                androidx.compose.material3.ExposedDropdownMenu(
+                ExposedDropdownMenu(
                     expanded = fwExpanded,
                     onDismissRequest = { fwExpanded = false },
                 ) {
