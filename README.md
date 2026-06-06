@@ -15,6 +15,20 @@ Two paired apps:
 
 ---
 
+## 📱 WLM ASIC Manager (Android, in development)
+
+A native Kotlin + Jetpack Compose app for monitoring and managing the fleet
+(hydro + air S19/S21/S23) on **Braiins OS+**, **VNish** and **Avalon** firmware —
+direct on the LAN, or from anywhere through a **Cloudflare tunnel**. Live
+hashrate/temps/power, water-loop in/out + flow, per-board stats, remote reboot,
+LAN discovery and add/edit of miners.
+
+- App source: [`android/`](android/) · build with `cd android && ./gradlew assembleDebug`
+- Site gateway for the remote path: [`gateway/`](gateway/)
+- CI builds the debug APK on every push (see the **Actions** tab).
+
+---
+
 ## ⬇️ Downloads (latest release)
 
 Go to the **[Releases page](../../releases/latest)** and pick the file for your platform:
