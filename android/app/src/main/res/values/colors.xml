@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="wlm_background">#FF0A0D12</color>
+    <color name="wlm_surface">#FF121822</color>
+    <color name="wlm_orange">#FFF7931A</color>
+</resources>
