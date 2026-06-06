@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -47,3 +47,28 @@ jobs:
           name: wlm-asic-manager-debug
           path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+      # Publish an installable APK to a GitHub Release so it can be downloaded
+      # straight to a phone. Runs only on branch pushes (not PRs).
+      - name: Stage APK for release
+        if: success() && github.event_name == 'push'
+        run: |
+          mkdir -p ../dist
+          cp app/build/outputs/apk/debug/app-debug.apk ../dist/WLM-ASIC-Manager-latest.apk
+
+      - name: Publish Release
+        if: success() && github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: WLM ASIC Manager (latest debug build)
+          tag_name: app-latest
+          target_commitish: ${{ github.sha }}
+          body: |
+            Latest WLM ASIC Manager Android build for sideloading.
+
+            **Install on your phone:** open this page on the phone, download the
+            `.apk` below and tap it (allow "install from unknown sources" if
+            prompted). Demo mode is on by default — turn it off in Settings to
+            connect to real miners. Debug-signed (not a Play Store build).
+          files: ../dist/WLM-ASIC-Manager-latest.apk
+          fail_on_unmatched_files: true
