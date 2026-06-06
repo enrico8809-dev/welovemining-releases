@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Bare launch theme; the real UI is themed in Compose (WlmTheme). -->
+    <style name="Theme.WlmAsicManager" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/wlm_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@color/wlm_background</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+    </style>
+</resources>
