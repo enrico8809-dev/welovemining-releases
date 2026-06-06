@@ -111,6 +111,41 @@ class FleetViewModel(
     fun itemFor(minerId: String): MinerWithStats? =
         _state.value.items.firstOrNull { it.miner.id == minerId }
 
+    // --- fleet configuration (add / edit / delete) -------------------------
+
+    fun configuredMinerFor(minerId: String): Miner? =
+        configuredMiners.value.firstOrNull { it.id == minerId }
+
+    /** Insert a new miner or replace the existing one with the same id. */
+    fun saveMiner(miner: Miner) = viewModelScope.launch {
+        val current = configuredMiners.value
+        val updated = if (current.any { it.id == miner.id }) {
+            current.map { if (it.id == miner.id) miner else it }
+        } else {
+            current + miner
+        }
+        settingsStore.saveMiners(updated)
+        refresh()
+    }
+
+    fun deleteMiner(minerId: String) = viewModelScope.launch {
+        settingsStore.saveMiners(configuredMiners.value.filterNot { it.id == minerId })
+        refresh()
+    }
+
+    /** Merge discovered miners into the fleet, skipping hosts already present. */
+    fun addDiscovered(miners: List<Miner>) = viewModelScope.launch {
+        val current = configuredMiners.value
+        val existingHosts = current.map { it.lanHost }.toSet()
+        val additions = miners.filterNot { it.lanHost in existingHosts }
+        if (additions.isNotEmpty()) {
+            settingsStore.saveMiners(current + additions)
+            // Adding real hardware implies leaving the demo fleet.
+            settingsStore.updateSettings { it.copy(demoMode = false) }
+            refresh()
+        }
+    }
+
     companion object {
         fun factory(repository: MinerRepository, settingsStore: SettingsStore) =
             object : ViewModelProvider.Factory {

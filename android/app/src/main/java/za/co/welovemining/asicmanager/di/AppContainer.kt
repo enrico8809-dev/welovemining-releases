@@ -3,6 +3,7 @@ package za.co.welovemining.asicmanager.di
 import android.content.Context
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
+import za.co.welovemining.asicmanager.data.discovery.MinerDiscovery
 import za.co.welovemining.asicmanager.data.remote.cgminer.CgminerSocketClient
 import za.co.welovemining.asicmanager.data.remote.firmware.HttpJsonClient
 import za.co.welovemining.asicmanager.data.repository.MinerRepository
@@ -32,4 +33,5 @@ class AppContainer(context: Context) {
 
     val settingsStore = SettingsStore(context.applicationContext)
     val repository = MinerRepository(httpJson, cgminer)
+    val discovery = MinerDiscovery(httpJson, cgminer)
 }

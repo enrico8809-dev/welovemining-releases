@@ -3,16 +3,24 @@ package za.co.welovemining.asicmanager.ui.miners
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -21,12 +29,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import za.co.welovemining.asicmanager.data.model.MinerState
 import za.co.welovemining.asicmanager.ui.FleetUiState
 import za.co.welovemining.asicmanager.ui.components.MinerRow
 import za.co.welovemining.asicmanager.ui.theme.WlmOnSurfaceMuted
+import za.co.welovemining.asicmanager.ui.theme.WlmOrange
 
 private enum class StatusFilter { ALL, ONLINE, ISSUES }
 
@@ -34,6 +44,8 @@ private enum class StatusFilter { ALL, ONLINE, ISSUES }
 fun MinersScreen(
     state: FleetUiState,
     onMinerClick: (String) -> Unit,
+    onAddMiner: () -> Unit,
+    onDiscover: () -> Unit,
     contentPadding: PaddingValues,
 ) {
     var query by remember { mutableStateOf("") }
@@ -63,6 +75,22 @@ fun MinersScreen(
         ),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = onAddMiner,
+                    colors = ButtonDefaults.buttonColors(containerColor = WlmOrange, contentColor = Color(0xFF1A1206)),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp)); Text("Add miner")
+                }
+                OutlinedButton(onClick = onDiscover, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Filled.Radar, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp)); Text("Scan")
+                }
+            }
+        }
         item {
             OutlinedTextField(
                 value = query,

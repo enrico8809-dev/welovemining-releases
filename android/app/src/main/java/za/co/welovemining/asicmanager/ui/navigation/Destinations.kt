@@ -16,6 +16,13 @@ enum class TopDestination(val route: String, val label: String, val icon: ImageV
 }
 
 object Routes {
-    const val MINER_DETAIL = "miner/{minerId}"
-    fun minerDetail(id: String) = "miner/$id"
+    const val MINER_DETAIL = "miner_detail/{minerId}"
+    fun minerDetail(id: String) = "miner_detail/$id"
+
+    const val MINER_NEW = "miner_new"
+
+    const val MINER_EDIT = "miner_edit/{minerId}"
+    fun minerEdit(id: String) = "miner_edit/$id"
+
+    const val DISCOVERY = "discovery"
 }
