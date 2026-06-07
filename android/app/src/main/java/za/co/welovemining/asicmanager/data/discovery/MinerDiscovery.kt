@@ -55,22 +55,27 @@ class MinerDiscovery(
     }
 
     private suspend fun probe(host: String): DiscoveredMiner? {
-        // cgminer/bmminer socket (Braiins / Avalon / Bitmain stock). Only accept
-        // a host that actually answers the cgminer API with a valid reply — an
-        // open port alone is not enough.
+        // An open cgminer/bmminer port (4028) is a strong miner signal in itself
+        // — almost nothing else listens there. Try to classify via the API, but
+        // still report the host as a miner if that call fails (it often does
+        // under the load of a full subnet scan).
         if (tcpOpen(host, CgminerSocketClient.DEFAULT_PORT)) {
-            val version = cgminer.command(host, command = "version", timeoutMs = 2_000).getOrNull()
-            if (isCgminerReply(version)) {
-                val vObj = (version as? JsonObject)?.get("VERSION").let { it as? JsonArray }
-                    ?.firstOrNull() as? JsonObject
-                val type = vObj.strAny("Type", "Miner", "Model").orEmpty()
-                val firmware = classifyCgminer(version as? JsonObject, vObj, type)
-                val model = type.ifBlank {
-                    cgminer.command(host, command = "stats", timeoutMs = 2_000).getOrNull()
-                        ?.let { extractModel(it.toString()) }.orEmpty()
-                }
-                return DiscoveredMiner(host, firmware, model, CgminerSocketClient.DEFAULT_PORT)
+            val version = cgminer.command(host, command = "version", timeoutMs = 3_000).getOrNull()
+            val vObj = (version as? JsonObject)?.get("VERSION").let { it as? JsonArray }
+                ?.firstOrNull() as? JsonObject
+            var type = vObj.strAny("Type", "Miner", "Model").orEmpty()
+            val firmware = if (isCgminerReply(version)) {
+                classifyCgminer(version as? JsonObject, vObj, type)
+            } else {
+                // Couldn't classify, but the port is a miner port — default to the
+                // general Braiins-style adapter (handles Braiins/Bitmain stock).
+                FirmwareType.BRAIINS
             }
+            if (type.isBlank()) {
+                type = cgminer.command(host, command = "stats", timeoutMs = 3_000).getOrNull()
+                    ?.let { extractModel(it.toString()) }.orEmpty()
+            }
+            return DiscoveredMiner(host, firmware, type, CgminerSocketClient.DEFAULT_PORT)
         }
         // VNish HTTP API. A web server merely listening on :80 (router, NAS,
         // printer, camera…) is NOT a miner — require a VNish-shaped response.
@@ -155,8 +160,8 @@ class MinerDiscovery(
     }
 
     companion object {
-        private const val MAX_PARALLEL = 48
+        private const val MAX_PARALLEL = 32
         private const val MAX_HOSTS = 1024
-        private const val CONNECT_TIMEOUT_MS = 350
+        private const val CONNECT_TIMEOUT_MS = 500
     }
 }
