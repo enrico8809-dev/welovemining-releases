@@ -61,10 +61,15 @@ class MinerDiscovery(
         if (tcpOpen(host, CgminerSocketClient.DEFAULT_PORT)) {
             val version = cgminer.command(host, command = "version", timeoutMs = 2_000).getOrNull()
             if (isCgminerReply(version)) {
-                val type = versionType(version)
-                val model = cgminer.command(host, command = "stats", timeoutMs = 2_000).getOrNull()
-                    ?.let { extractModel(it.toString()) }.orEmpty()
-                return DiscoveredMiner(host, classify(type), model.ifBlank { type }, CgminerSocketClient.DEFAULT_PORT)
+                val vObj = (version as? JsonObject)?.get("VERSION").let { it as? JsonArray }
+                    ?.firstOrNull() as? JsonObject
+                val type = vObj.strAny("Type", "Miner", "Model").orEmpty()
+                val firmware = classifyCgminer(version as? JsonObject, vObj, type)
+                val model = type.ifBlank {
+                    cgminer.command(host, command = "stats", timeoutMs = 2_000).getOrNull()
+                        ?.let { extractModel(it.toString()) }.orEmpty()
+                }
+                return DiscoveredMiner(host, firmware, model, CgminerSocketClient.DEFAULT_PORT)
             }
         }
         // VNish HTTP API. A web server merely listening on :80 (router, NAS,
@@ -95,20 +100,22 @@ class MinerDiscovery(
         return keys.any { o[it] != null }
     }
 
-    private fun versionType(version: JsonElement?): String {
-        val arr = (version as? JsonObject)?.get("VERSION") as? JsonArray ?: return ""
-        val first = arr.firstOrNull() as? JsonObject
-        return first.strAny("Type", "Miner", "BOSminer", "CGMiner") ?: ""
-    }
-
-    private fun classify(type: String): FirmwareType {
+    /**
+     * Classify a cgminer responder. Braiins OS+ advertises a `BOSminer*` key in
+     * its version object, which cleanly separates it from stock Bitmain even
+     * though both report an "Antminer …" type. Anything else that speaks the
+     * cgminer API defaults to the general Braiins-style adapter.
+     */
+    private fun classifyCgminer(root: JsonObject?, version: JsonObject?, type: String): FirmwareType {
+        val keys = (version?.keys.orEmpty() + root?.keys.orEmpty())
+        val hasBos = keys.any { it.contains("bos", ignoreCase = true) }
         val t = type.lowercase()
         return when {
-            "braiins" in t || "bos" in t -> FirmwareType.BRAIINS
+            hasBos || "braiins" in t || "bos" in t -> FirmwareType.BRAIINS
             "avalon" in t -> FirmwareType.AVALON
             "vnish" in t -> FirmwareType.VNISH
             "antminer" in t || "bitmain" in t -> FirmwareType.BITMAIN
-            else -> FirmwareType.UNKNOWN
+            else -> FirmwareType.BRAIINS
         }
     }
 

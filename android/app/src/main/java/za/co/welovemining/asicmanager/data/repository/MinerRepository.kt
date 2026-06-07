@@ -42,10 +42,14 @@ class MinerRepository(
         FirmwareType.AVALON to AvalonClient(cgminer),
         // Bitmain stock keeps the cgminer socket enabled on most builds.
         FirmwareType.BITMAIN to BraiinsClient(cgminer),
+        // Unidentified cgminer responders are handled by the general Braiins-style
+        // adapter (summary + temps + fans + tunerstatus) rather than Avalon's
+        // proprietary parser — far more likely to be correct.
+        FirmwareType.UNKNOWN to BraiinsClient(cgminer),
     )
 
     fun clientFor(firmware: FirmwareType): MinerApiClient =
-        clients[firmware] ?: clients.getValue(FirmwareType.AVALON)
+        clients[firmware] ?: clients.getValue(FirmwareType.UNKNOWN)
 
     /** Poll the whole fleet once. [tick] only matters for the demo wave. */
     suspend fun pollFleet(settings: AppSettings, miners: List<Miner>, tick: Long): FleetResult {

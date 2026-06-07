@@ -40,6 +40,13 @@ class BraiinsClient(
         val ghsAv = s.numAny("GHS av", "MHS av")?.let { normaliseToGhs(s, it) } ?: ghs5s
         val uptime = s.num("Elapsed")?.toLong() ?: 0
 
+        // version → device model (e.g. "Antminer S19 Hydro") + firmware string.
+        val vObj = socket.command(host, p, "version").getOrNull()
+            ?.let { (it as? JsonObject)?.list("VERSION")?.firstOrNull() } as? JsonObject
+        val deviceModel = vObj.strAny("Type", "Miner", "Model").orEmpty()
+        val fwVersion = vObj.strAny("BOSminer+", "BOSminer", "CGMiner", "BMMiner")
+            ?.let { "Braiins OS+ $it" } ?: "Braiins OS+"
+
         val temps = socket.command(host, p, "temps").getOrNull()
             ?.let { (it as? JsonObject)?.list("TEMPS") }.orEmpty().mapNotNull { it as? JsonObject }
         val fans = socket.command(host, p, "fans").getOrNull()
@@ -47,22 +54,39 @@ class BraiinsClient(
         val tuner = socket.command(host, p, "tunerstatus").getOrNull()
             ?.let { (it as? JsonObject)?.list("TUNERSTATUS").orEmpty().firstOrNull() } as? JsonObject
 
-        val boards = temps.mapIndexed { i, t ->
-            BoardStat(
-                index = t.num("ID")?.toInt() ?: i,
-                hashrateThs = 0.0,
-                chipTempC = t.numAny("Chip", "Chip temperature") ?: 0.0,
-                boardTempC = t.numAny("Board", "Board temperature") ?: 0.0,
-                chipsWorking = 0,
-                chipsTotal = 0,
-            )
+        // Prefer the dedicated `temps` command; fall back to per-device temps in `devs`.
+        val boards = if (temps.isNotEmpty()) {
+            temps.mapIndexed { i, t ->
+                BoardStat(
+                    index = t.num("ID")?.toInt() ?: i,
+                    hashrateThs = 0.0,
+                    chipTempC = t.numAny("Chip", "Chip temperature", "ChipTemp") ?: 0.0,
+                    boardTempC = t.numAny("Board", "Board temperature", "PCB", "TempPCB") ?: 0.0,
+                    chipsWorking = 0,
+                    chipsTotal = 0,
+                )
+            }
+        } else {
+            socket.command(host, p, "devs").getOrNull()
+                ?.let { (it as? JsonObject)?.list("DEVS") }.orEmpty().mapNotNull { it as? JsonObject }
+                .mapIndexed { i, d ->
+                    BoardStat(
+                        index = d.num("ASC")?.toInt() ?: d.num("ID")?.toInt() ?: i,
+                        hashrateThs = ghsToThs(d.numAny("MHS 5s", "GHS 5s")),
+                        chipTempC = d.numAny("Temperature", "Chip") ?: 0.0,
+                        boardTempC = d.numAny("Temperature", "Board") ?: 0.0,
+                        chipsWorking = 0,
+                        chipsTotal = 0,
+                    )
+                }
         }
         val fanRpms = fans.mapNotNull { it.numAny("RPM", "Speed")?.toInt() }
         val power = tuner.numAny(
             "ApproximateMinerPowerConsumption",
             "PowerConsumption",
+            "MinerPowerConsumption",
             "PowerLimit",
-        ) ?: 0.0
+        ) ?: s.numAny("Power", "Power_RT") ?: 0.0
 
         val maxTemp = boards.maxOfOrNull { maxOf(it.chipTempC, it.boardTempC) } ?: 0.0
         val hashrate = ghs5s / 1000.0
@@ -82,20 +106,29 @@ class BraiinsClient(
                 hydro = if (miner.cooling == CoolingType.HYDRO) parseHydro(temps) else null,
                 pools = pools,
                 uptimeSeconds = uptime,
-                model = miner.model,
-                firmwareVersion = "Braiins OS+",
+                model = miner.model.ifBlank { deviceModel },
+                firmwareVersion = fwVersion,
             )
         )
     }
+
+    private fun ghsToThs(ghs: Double?): Double = (ghs ?: 0.0) / 1000.0
 
     /** If the firmware reported MHS rather than GHS, scale down. */
     private fun normaliseToGhs(summary: JsonObject, value: Double): Double =
         if (summary["GHS 5s"] != null || summary["GHS av"] != null) value else value / 1000.0
 
     private fun parseHydro(temps: List<JsonObject>): HydroStat? {
-        val inlet = temps.firstNotNullOfOrNull { it.numAny("Water in", "Inlet") } ?: return null
-        val outlet = temps.firstNotNullOfOrNull { it.numAny("Water out", "Outlet") } ?: inlet
-        return HydroStat(inletTempC = inlet, outletTempC = outlet, flowLpm = 0.0)
+        // Some Braiins Hydro builds surface coolant sensors in `temps`; scan
+        // every entry for inlet/outlet-style keys before giving up.
+        fun find(vararg keys: String) = temps.firstNotNullOfOrNull { it.numAny(*keys) }
+        val inlet = find("Water in", "Inlet", "WaterIn", "Coolant in", "InletTemp") ?: return null
+        val outlet = find("Water out", "Outlet", "WaterOut", "Coolant out", "OutletTemp") ?: inlet
+        return HydroStat(
+            inletTempC = inlet,
+            outletTempC = outlet,
+            flowLpm = find("Flow", "FlowRate") ?: 0.0,
+        )
     }
 
     override suspend fun reboot(miner: Miner): Result<Unit> =

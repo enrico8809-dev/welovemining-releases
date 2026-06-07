@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import za.co.welovemining.asicmanager.data.model.CoolingType
+import za.co.welovemining.asicmanager.data.model.FirmwareType
 import za.co.welovemining.asicmanager.data.model.MinerState
 import za.co.welovemining.asicmanager.data.model.MinerWithStats
 import za.co.welovemining.asicmanager.ui.theme.WlmOrange
@@ -77,8 +78,13 @@ fun MinerRow(
                 }
             }
             Spacer(Modifier.height(2.dp))
+            // Fall back to what the device reports when the stored fields are
+            // blank/unknown (e.g. miners added before they were fingerprinted).
+            val modelText = item.miner.model.ifBlank { stats?.model.orEmpty() }.ifBlank { "Unknown model" }
+            val fwText = if (item.miner.firmware != FirmwareType.UNKNOWN) item.miner.firmware.displayName
+                else stats?.firmwareVersion?.takeIf { it.isNotBlank() } ?: "Unknown"
             Text(
-                "${item.miner.model} · ${item.miner.firmware.displayName}",
+                "$modelText · $fwText",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
