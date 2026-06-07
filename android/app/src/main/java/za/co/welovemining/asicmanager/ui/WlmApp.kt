@@ -100,6 +100,8 @@ fun WlmApp(
                     onAddMiner = { navController.navigate(Routes.MINER_NEW) },
                     onDiscover = { navController.navigate(Routes.DISCOVERY) },
                     contentPadding = padding,
+                    demoMode = appSettings.demoMode,
+                    onDeleteMiner = { fleetVm.deleteMiner(it) },
                 )
             }
             composable(TopDestination.ALERTS.route) {
@@ -139,7 +141,15 @@ fun WlmApp(
                 MinerEditorScreen(
                     initial = fleetVm.configuredMinerFor(minerId),
                     onSave = { fleetVm.saveMiner(it) },
-                    onDelete = { fleetVm.deleteMiner(it) },
+                    onDelete = { id ->
+                        fleetVm.deleteMiner(id)
+                        // Leave the editor and the now-stale detail screen for the list.
+                        navController.navigate(TopDestination.MINERS.route) {
+                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
                     onBack = { navController.popBackStack() },
                 )
             }

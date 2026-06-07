@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
@@ -23,6 +24,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,8 +35,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import za.co.welovemining.asicmanager.data.model.MinerState
+import za.co.welovemining.asicmanager.data.model.MinerWithStats
 import za.co.welovemining.asicmanager.ui.FleetUiState
 import za.co.welovemining.asicmanager.ui.components.MinerRow
+import za.co.welovemining.asicmanager.ui.theme.WlmDanger
 import za.co.welovemining.asicmanager.ui.theme.WlmOnSurfaceMuted
 import za.co.welovemining.asicmanager.ui.theme.WlmOrange
 
@@ -47,9 +51,12 @@ fun MinersScreen(
     onAddMiner: () -> Unit,
     onDiscover: () -> Unit,
     contentPadding: PaddingValues,
+    demoMode: Boolean = false,
+    onDeleteMiner: (String) -> Unit = {},
 ) {
     var query by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf(StatusFilter.ALL) }
+    var pendingDelete by remember { mutableStateOf<MinerWithStats?>(null) }
 
     val filtered = state.items.filter { item ->
         val matchesQuery = query.isBlank() ||
@@ -122,7 +129,33 @@ fun MinersScreen(
                 )
             }
             items(items, key = { it.miner.id }) { item ->
-                MinerRow(item = item, onClick = { onMinerClick(item.miner.id) })
+                MinerRow(
+                    item = item,
+                    onClick = { onMinerClick(item.miner.id) },
+                    onLongClick = if (demoMode) null else ({ pendingDelete = item }),
+                )
+            }
+        }
+
+        if (!demoMode && filtered.isNotEmpty()) {
+            item {
+                Text(
+                    "Long-press a miner to remove it.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = WlmOnSurfaceMuted,
+                    modifier = Modifier.padding(top = 4.dp, start = 4.dp),
+                )
+            }
+        }
+
+        if (demoMode) {
+            item {
+                Text(
+                    "Demo mode is on — these are sample miners. Turn it off in Settings to add and manage your own.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = WlmOnSurfaceMuted,
+                    modifier = Modifier.padding(top = 4.dp, start = 4.dp),
+                )
             }
         }
 
@@ -136,5 +169,21 @@ fun MinersScreen(
                 )
             }
         }
+    }
+
+    pendingDelete?.let { target ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("Remove ${target.miner.name}?") },
+            text = { Text("This removes it from your fleet. You can add it again later.") },
+            confirmButton = {
+                Button(
+                    onClick = { onDeleteMiner(target.miner.id); pendingDelete = null },
+                    colors = ButtonDefaults.buttonColors(containerColor = WlmDanger, contentColor = Color(0xFF2A0A0A)),
+                ) { Text("Remove") }
+            },
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Cancel") } },
+            containerColor = MaterialTheme.colorScheme.surface,
+        )
     }
 }

@@ -1,8 +1,9 @@
 package za.co.welovemining.asicmanager.ui.components
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,11 +37,13 @@ import za.co.welovemining.asicmanager.ui.theme.WlmOrange
 import za.co.welovemining.asicmanager.ui.theme.WlmPower
 import za.co.welovemining.asicmanager.ui.theme.WlmWater
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MinerRow(
     item: MinerWithStats,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onLongClick: (() -> Unit)? = null,
 ) {
     val stats = item.stats
     val state = stats?.state ?: MinerState.OFFLINE
@@ -53,7 +56,7 @@ fun MinerRow(
             .clip(RoundedCornerShape(16.dp))
             .background(MaterialTheme.colorScheme.surface)
             .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(14.dp),
     ) {
         // accent status bar

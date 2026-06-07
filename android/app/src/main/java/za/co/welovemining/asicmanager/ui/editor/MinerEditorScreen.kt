@@ -80,7 +80,7 @@ fun MinerEditorScreen(
                 },
                 actions = {
                     if (editing) {
-                        IconButton(onClick = { onDelete(initial!!.id); onBack() }) {
+                        IconButton(onClick = { onDelete(initial!!.id) }) {
                             Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = WlmDanger)
                         }
                     }

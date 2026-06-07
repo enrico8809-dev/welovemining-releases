@@ -8,6 +8,9 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import za.co.welovemining.asicmanager.data.model.FirmwareType
 import za.co.welovemining.asicmanager.data.remote.cgminer.CgminerSocketClient
 import za.co.welovemining.asicmanager.data.remote.firmware.HttpJsonClient
@@ -52,27 +55,49 @@ class MinerDiscovery(
     }
 
     private suspend fun probe(host: String): DiscoveredMiner? {
+        // cgminer/bmminer socket (Braiins / Avalon / Bitmain stock). Only accept
+        // a host that actually answers the cgminer API with a valid reply — an
+        // open port alone is not enough.
         if (tcpOpen(host, CgminerSocketClient.DEFAULT_PORT)) {
             val version = cgminer.command(host, command = "version", timeoutMs = 2_000).getOrNull()
-            val type = versionType(version)
-            val firmware = classify(type)
-            val model = cgminer.command(host, command = "stats", timeoutMs = 2_000).getOrNull()
-                ?.let { extractModel(it.toString()) } ?: type
-            return DiscoveredMiner(host, firmware, model, CgminerSocketClient.DEFAULT_PORT)
+            if (isCgminerReply(version)) {
+                val type = versionType(version)
+                val model = cgminer.command(host, command = "stats", timeoutMs = 2_000).getOrNull()
+                    ?.let { extractModel(it.toString()) }.orEmpty()
+                return DiscoveredMiner(host, classify(type), model.ifBlank { type }, CgminerSocketClient.DEFAULT_PORT)
+            }
         }
+        // VNish HTTP API. A web server merely listening on :80 (router, NAS,
+        // printer, camera…) is NOT a miner — require a VNish-shaped response.
         if (tcpOpen(host, 80)) {
-            val info = http.getJson("http://$host/api/v1/info", null).getOrNull()
-            val model = info.strAny("miner_type", "model") ?: ""
-            val firmware = if (info != null) FirmwareType.VNISH else FirmwareType.UNKNOWN
-            return DiscoveredMiner(host, firmware, model, 80)
+            val body = http.getJson("http://$host/api/v1/summary", null).getOrNull()
+                ?: http.getJson("http://$host/api/v1/info", null).getOrNull()
+            if (looksLikeVnish(body)) {
+                val m = (body as? JsonObject)?.get("miner") ?: body
+                val model = m.strAny("miner_type", "model") ?: body.strAny("miner_type", "model") ?: ""
+                return DiscoveredMiner(host, FirmwareType.VNISH, model, 80)
+            }
         }
         return null
     }
 
-    private fun versionType(version: kotlinx.serialization.json.JsonElement?): String {
-        val arr = (version as? kotlinx.serialization.json.JsonObject)
-            ?.get("VERSION") as? kotlinx.serialization.json.JsonArray ?: return ""
-        val first = arr.firstOrNull() as? kotlinx.serialization.json.JsonObject
+    /** True only if the payload is a genuine cgminer/bmminer API reply. */
+    private fun isCgminerReply(el: JsonElement?): Boolean {
+        val o = el as? JsonObject ?: return false
+        return o["VERSION"] is JsonArray || o["STATUS"] is JsonArray
+    }
+
+    /** True only if the payload carries fields unique to the VNish miner API. */
+    private fun looksLikeVnish(el: JsonElement?): Boolean {
+        val o = el as? JsonObject ?: return false
+        if (o["miner"] is JsonObject) return true
+        val keys = listOf("miner_type", "instant_hashrate", "average_hashrate", "chains", "hr_realtime", "power_usage")
+        return keys.any { o[it] != null }
+    }
+
+    private fun versionType(version: JsonElement?): String {
+        val arr = (version as? JsonObject)?.get("VERSION") as? JsonArray ?: return ""
+        val first = arr.firstOrNull() as? JsonObject
         return first.strAny("Type", "Miner", "BOSminer", "CGMiner") ?: ""
     }
 

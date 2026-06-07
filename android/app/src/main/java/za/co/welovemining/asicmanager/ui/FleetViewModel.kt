@@ -65,10 +65,8 @@ class FleetViewModel(
         }
     }
 
-    private fun currentMiners(s: AppSettings): List<Miner> {
-        val persisted = configuredMiners.value
-        return if (s.demoMode || persisted.isEmpty()) MockData.miners else persisted
-    }
+    private fun currentMiners(s: AppSettings): List<Miner> =
+        if (s.demoMode) MockData.miners else configuredMiners.value
 
     private suspend fun poll(s: AppSettings, miners: List<Miner>, tick: Long) {
         val result = runCatching { repository.pollFleet(s, miners, tick) }.getOrElse {
@@ -119,12 +117,11 @@ class FleetViewModel(
     /** Insert a new miner or replace the existing one with the same id. */
     fun saveMiner(miner: Miner) = viewModelScope.launch {
         val current = configuredMiners.value
-        val updated = if (current.any { it.id == miner.id }) {
-            current.map { if (it.id == miner.id) miner else it }
-        } else {
-            current + miner
-        }
+        val isNew = current.none { it.id == miner.id }
+        val updated = if (isNew) current + miner else current.map { if (it.id == miner.id) miner else it }
         settingsStore.saveMiners(updated)
+        // Configuring a real miner means we're no longer browsing the demo fleet.
+        if (isNew) settingsStore.updateSettings { it.copy(demoMode = false) }
         refresh()
     }
 
