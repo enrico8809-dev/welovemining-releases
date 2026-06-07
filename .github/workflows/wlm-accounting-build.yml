@@ -1,0 +1,45 @@
+name: WLM Accounting — Android APK (EAS Build)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "wlm-accounting/**"
+      - ".github/workflows/wlm-accounting-build.yml"
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "EAS build profile"
+        required: false
+        default: "preview"
+        type: choice
+        options:
+          - preview
+          - production
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: wlm-accounting
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: wlm-accounting/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set up EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Build Android APK on EAS
+        run: eas build -p android --profile ${{ inputs.profile || 'preview' }} --non-interactive --no-wait=false

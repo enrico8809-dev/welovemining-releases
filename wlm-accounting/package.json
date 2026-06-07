@@ -1,0 +1,33 @@
+{
+  "name": "wlm-accounting",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "dependencies": {
+    "@expo-google-fonts/rajdhani": "^0.4.1",
+    "@expo-google-fonts/share-tech-mono": "^0.4.1",
+    "@react-native-async-storage/async-storage": "^3.1.1",
+    "@react-navigation/bottom-tabs": "^7.16.2",
+    "@react-navigation/native": "^7.2.5",
+    "@react-navigation/native-stack": "^7.16.0",
+    "expo": "~56.0.9",
+    "expo-font": "^56.0.5",
+    "expo-status-bar": "~56.0.4",
+    "lucide-react-native": "^1.17.0",
+    "react": "19.2.3",
+    "react-native": "0.85.3",
+    "react-native-safe-area-context": "^5.8.0",
+    "react-native-screens": "^4.25.2",
+    "react-native-svg": "^15.15.5"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.2",
+    "typescript": "~6.0.3"
+  },
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web"
+  },
+  "private": true
+}
