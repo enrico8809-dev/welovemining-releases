@@ -10,8 +10,7 @@ import za.co.welovemining.asicmanager.data.model.Miner
 import za.co.welovemining.asicmanager.data.model.MinerStats
 import za.co.welovemining.asicmanager.data.model.MinerWithStats
 import za.co.welovemining.asicmanager.data.remote.cgminer.CgminerSocketClient
-import za.co.welovemining.asicmanager.data.remote.firmware.AvalonClient
-import za.co.welovemining.asicmanager.data.remote.firmware.BraiinsClient
+import za.co.welovemining.asicmanager.data.remote.firmware.CgminerClient
 import za.co.welovemining.asicmanager.data.remote.firmware.HttpJsonClient
 import za.co.welovemining.asicmanager.data.remote.firmware.MinerApiClient
 import za.co.welovemining.asicmanager.data.remote.firmware.VnishClient
@@ -36,16 +35,16 @@ class MinerRepository(
 ) {
     private val gateway = GatewayClient(httpClient)
 
+    // One unified cgminer adapter handles Braiins / Avalon / Bitmain / unknown
+    // by merging every command's output — robust to firmware mis-labelling.
+    private val cgminerClient = CgminerClient(cgminer)
+
     private val clients: Map<FirmwareType, MinerApiClient> = mapOf(
-        FirmwareType.BRAIINS to BraiinsClient(cgminer),
+        FirmwareType.BRAIINS to cgminerClient,
         FirmwareType.VNISH to VnishClient(httpClient),
-        FirmwareType.AVALON to AvalonClient(cgminer),
-        // Bitmain stock keeps the cgminer socket enabled on most builds.
-        FirmwareType.BITMAIN to BraiinsClient(cgminer),
-        // Unidentified cgminer responders are handled by the general Braiins-style
-        // adapter (summary + temps + fans + tunerstatus) rather than Avalon's
-        // proprietary parser — far more likely to be correct.
-        FirmwareType.UNKNOWN to BraiinsClient(cgminer),
+        FirmwareType.AVALON to cgminerClient,
+        FirmwareType.BITMAIN to cgminerClient,
+        FirmwareType.UNKNOWN to cgminerClient,
     )
 
     fun clientFor(firmware: FirmwareType): MinerApiClient =

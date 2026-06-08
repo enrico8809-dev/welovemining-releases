@@ -50,11 +50,13 @@ jobs:
 
       # Publish an installable APK to a GitHub Release so it can be downloaded
       # straight to a phone. Runs only on branch pushes (not PRs).
-      - name: Stage APK for release
+      - name: Stage APK + gateway for release
         if: success() && github.event_name == 'push'
         run: |
-          mkdir -p ../dist
-          cp app/build/outputs/apk/debug/app-debug.apk ../dist/WLM-ASIC-Manager-latest.apk
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/dist/WLM-ASIC-Manager-latest.apk"
+          cd "$GITHUB_WORKSPACE"
+          zip -r dist/WLM-Gateway.zip gateway -x 'gateway/node_modules/*' 'gateway/config.json' 'gateway/windows/node_modules/*'
 
       - name: Publish Release
         if: success() && github.event_name == 'push'
@@ -64,11 +66,17 @@ jobs:
           tag_name: app-latest
           target_commitish: ${{ github.sha }}
           body: |
-            Latest WLM ASIC Manager Android build for sideloading.
+            Latest WLM ASIC Manager build.
 
-            **Install on your phone:** open this page on the phone, download the
-            `.apk` below and tap it (allow "install from unknown sources" if
-            prompted). Demo mode is on by default — turn it off in Settings to
-            connect to real miners. Debug-signed (not a Play Store build).
-          files: dist/WLM-ASIC-Manager-latest.apk
+            **App (phone):** download `WLM-ASIC-Manager-latest.apk` below, tap it
+            (allow "install from unknown sources"). Demo mode is on by default —
+            turn it off in Settings to connect to real miners. Debug-signed.
+
+            **Site gateway:** download `WLM-Gateway.zip` and run it on an
+            always-on PC at each site (see `gateway/README.md` inside). Exposes
+            one API over a Cloudflare tunnel so the app reaches that site
+            remotely.
+          files: |
+            dist/WLM-ASIC-Manager-latest.apk
+            dist/WLM-Gateway.zip
           fail_on_unmatched_files: true
