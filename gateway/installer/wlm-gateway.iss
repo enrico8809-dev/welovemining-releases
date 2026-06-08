@@ -60,9 +60,7 @@ function GenToken(): String;
 begin
   // Unique-per-install token derived from host + time (no RNG seed available
   // in Inno's Pascal Script). MD5 gives a 32-char hex string.
-  Result := GetMD5OfString(
-    GetDateTimeString('yyyymmddhhnnsszzz', '-', ':') + '|' +
-    IntToStr(GetTickCount));
+  Result := GetMD5OfString(GetDateTimeString('yyyy-mm-dd hh:nn:ss.zzz', '-', ':'));
 end;
 
 procedure InitializeWizard();
