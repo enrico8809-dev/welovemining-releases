@@ -12,28 +12,34 @@ Android app  ──HTTPS──▶  Cloudflare tunnel  ──▶  this gateway  �
 
 The gateway itself has **zero npm dependencies** — Node.js 18+ only.
 
-## Run (Windows — recommended)
+## Easiest: one-click Windows installer (recommended)
 
-This is designed to run as a **Windows service** on an always-on PC at the site.
+Download **`WLM-Gateway-Setup.exe`** from the `gateway-latest` release and run it
+on an always-on Windows PC on the miners' LAN. It bundles Node + cloudflared,
+installs the gateway as an auto-starting service, and **auto-discovers the
+miners** on the network — there's no miner list to edit.
 
-1. Install **Node.js 18+** from <https://nodejs.org> (LTS).
-2. Copy `config.example.json` → `config.json` and edit it (miners, and a long
-   random `token`).
-3. Quick test: double-click **`windows\run.bat`** (foreground). Browse to
-   <http://localhost:8787> — you should see a status page listing your miners.
-4. Install as an auto-starting service (so it survives reboots). In an
-   **Administrator** PowerShell:
-   ```powershell
-   cd gateway\windows
-   npm install            # pulls node-windows (service wrapper only)
-   node install-service.js
-   ```
-   A service named **“WLM Gateway”** now runs on boot (manage it in
-   `services.msc`). Remove it later with `node uninstall-service.js`.
+During setup you only:
+1. Paste your **Cloudflare Tunnel connector token** (optional — from the
+   Cloudflare Zero Trust dashboard; leave blank to set up the tunnel later).
+2. Copy the generated **app access token** into the Android app
+   (Settings → Access token).
 
-Set the same `token` in the app: **Settings → Connectivity → Access token**.
+That's it — the gateway is running as a service and (if you pasted the token)
+reachable at your tunnel hostname. Status page: <http://localhost:8787>.
 
-> macOS/Linux: same `config.json`, just `node server.js` (or a systemd unit).
+## Manual run (any OS)
+
+If you'd rather not use the installer (Linux/macOS, or a Pi):
+
+1. Install **Node.js 18+**.
+2. `cp config.example.json config.json` and set a long random `token`. Leave
+   `discover: true` to auto-find miners (optionally set `subnets`), or list them
+   explicitly under `miners`.
+3. `node server.js` — or install as a service (Windows: the installer above;
+   Linux: a systemd unit). Browse to <http://localhost:8787> to confirm.
+
+Set the same `token` in the app under **Settings → Access token**.
 
 ## API
 

@@ -1,35 +1,9 @@
 {
   "listenPort": 8787,
   "pollIntervalSec": 10,
+  "discoveryIntervalSec": 300,
+  "discover": true,
   "token": "change-me-to-a-long-random-string",
-  "miners": [
-    {
-      "id": "s21h-01",
-      "name": "S21 Hydro #1",
-      "host": "192.168.1.50",
-      "port": 4028,
-      "firmware": "BRAIINS",
-      "cooling": "hydro",
-      "group": "Hydro Row A"
-    },
-    {
-      "id": "s23h-01",
-      "name": "S23 Hydro #1",
-      "host": "192.168.1.51",
-      "port": 80,
-      "firmware": "VNISH",
-      "cooling": "hydro",
-      "group": "Hydro Row B",
-      "password": "admin"
-    },
-    {
-      "id": "avalon-01",
-      "name": "Avalon A1566",
-      "host": "192.168.1.60",
-      "port": 4028,
-      "firmware": "AVALON",
-      "cooling": "air",
-      "group": "Air Shelf 2"
-    }
-  ]
+  "subnets": [],
+  "miners": []
 }

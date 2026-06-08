@@ -4,3 +4,7 @@ node_modules/
 windows/node_modules/
 *.log
 daemon/
+
+# Installer build artifacts (produced by CI)
+installer/payload/
+installer/Output/

@@ -1,0 +1,89 @@
+name: Gateway Installer
+
+# Builds the Windows one-click installer (Setup.exe) for the site gateway and
+# publishes it to the `gateway-latest` GitHub Release. The installer bundles
+# Node.js, cloudflared and the WinSW service wrapper, so the operator only needs
+# to paste a Cloudflare Tunnel token.
+
+on:
+  push:
+    branches: [ "claude/**", "main" ]
+    paths:
+      - "gateway/**"
+      - ".github/workflows/gateway-installer.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Setup.exe
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Stage payload
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $payload = "gateway/installer/payload"
+          New-Item -ItemType Directory -Force -Path $payload | Out-Null
+
+          # Gateway app files
+          Copy-Item gateway/server.js          $payload/
+          Copy-Item gateway/package.json       $payload/
+          Copy-Item gateway/config.example.json $payload/
+          Copy-Item gateway/README.md          $payload/
+          Copy-Item gateway/installer/wlm-gateway-service.xml $payload/
+
+          # Node.js runtime (bundled so no prerequisite install is needed)
+          $node = "v20.18.1"
+          Invoke-WebRequest "https://nodejs.org/dist/$node/node-$node-win-x64.zip" -OutFile node.zip
+          Expand-Archive node.zip -DestinationPath nodetmp -Force
+          Copy-Item "nodetmp/node-$node-win-x64/node.exe" "$payload/node.exe"
+
+          # WinSW service wrapper (renamed to match the service XML)
+          Invoke-WebRequest "https://github.com/winsw/winsw/releases/download/v2.12.0/WinSW-x64.exe" -OutFile "$payload/wlm-gateway-service.exe"
+
+          # cloudflared
+          Invoke-WebRequest "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -OutFile "$payload/cloudflared.exe"
+
+          Get-ChildItem $payload | Format-Table Name,Length
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Compile installer
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" gateway/installer/wlm-gateway.iss
+          Get-ChildItem gateway/installer/Output
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wlm-gateway-setup
+          path: gateway/installer/Output/WLM-Gateway-Setup.exe
+          if-no-files-found: error
+
+      - name: Publish Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: WLM Gateway (Windows installer)
+          tag_name: gateway-latest
+          target_commitish: ${{ github.sha }}
+          body: |
+            One-click Windows installer for the WLM site gateway.
+
+            **Per site:** run `WLM-Gateway-Setup.exe` on an always-on Windows PC
+            on the miners' LAN. It bundles Node + cloudflared, installs the
+            gateway as a service, and auto-discovers the miners on the network.
+            During setup, paste your Cloudflare Tunnel connector token (from the
+            Cloudflare Zero Trust dashboard) and copy the generated **app access
+            token** into the Android app (Settings -> Access token).
+          files: gateway/installer/Output/WLM-Gateway-Setup.exe
+          fail_on_unmatched_files: true
