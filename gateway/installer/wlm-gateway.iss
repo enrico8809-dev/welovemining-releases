@@ -33,7 +33,6 @@ WizardStyle=modern
 Source: "payload\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
-Name: "{group}\WLM Gateway status"; Filename: "http://localhost:8787/"
 Name: "{group}\Uninstall WLM Gateway"; Filename: "{uninstallexe}"
 
 [Run]
@@ -58,14 +57,14 @@ var
   AccessToken: String;
 
 function GenToken(): String;
-const
-  Hex = '0123456789abcdef';
 var
   i: Integer;
+  hex: String;
 begin
+  hex := '0123456789abcdef';
   Result := '';
   for i := 1 to 48 do
-    Result := Result + Hex[Random(16) + 1];
+    Result := Result + Copy(hex, Random(16) + 1, 1);
 end;
 
 procedure InitializeWizard();
