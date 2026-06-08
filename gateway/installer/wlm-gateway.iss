@@ -57,19 +57,16 @@ var
   AccessToken: String;
 
 function GenToken(): String;
-var
-  i: Integer;
-  hex: String;
 begin
-  hex := '0123456789abcdef';
-  Result := '';
-  for i := 1 to 48 do
-    Result := Result + Copy(hex, Random(16) + 1, 1);
+  // Unique-per-install token derived from host + time (no RNG seed available
+  // in Inno's Pascal Script). MD5 gives a 32-char hex string.
+  Result := GetMD5OfString(
+    GetDateTimeString('yyyymmddhhnnsszzz', '-', ':') + '|' +
+    IntToStr(GetTickCount));
 end;
 
 procedure InitializeWizard();
 begin
-  Randomize();
   AccessToken := GenToken();
   CfPage := CreateInputQueryPage(wpWelcome,
     'Connectivity',
