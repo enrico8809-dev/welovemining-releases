@@ -20,13 +20,21 @@ installs the gateway as an auto-starting service, and **auto-discovers the
 miners** on the network — there's no miner list to edit.
 
 During setup you only:
-1. Paste your **Cloudflare Tunnel connector token** (optional — from the
-   Cloudflare Zero Trust dashboard; leave blank to set up the tunnel later).
+1. Leave **"Use a free instant Cloudflare tunnel" ticked** (recommended) — no
+   Cloudflare account, token or dashboard needed. The gateway creates a public
+   web address for you automatically.
 2. Copy the generated **app access token** into the Android app
    (Settings → Access token).
 
-That's it — the gateway is running as a service and (if you pasted the token)
-reachable at your tunnel hostname. Status page: <http://localhost:8787>.
+After install, open **<http://localhost:8787>** on that PC — it shows your
+**public address** (e.g. `https://something.trycloudflare.com`). Put that into
+the app under **Settings → Gateway URL**, with the access token. Done.
+
+> The instant tunnel's address can change if the PC reboots — just re-open the
+> status page to get the current one. For a **permanent custom domain**
+> (`miners.yourdomain.com`), untick the instant tunnel during install and paste
+> a Cloudflare Tunnel connector token instead (then add a Public Hostname →
+> `localhost:8787` in the Cloudflare dashboard).
 
 ## Manual run (any OS)
 

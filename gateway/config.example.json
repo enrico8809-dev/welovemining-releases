@@ -3,6 +3,7 @@
   "pollIntervalSec": 10,
   "discoveryIntervalSec": 300,
   "discover": true,
+  "quickTunnel": false,
   "token": "change-me-to-a-long-random-string",
   "subnets": [],
   "miners": []

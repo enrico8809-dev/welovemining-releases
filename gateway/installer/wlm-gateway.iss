@@ -53,6 +53,7 @@ Type: filesandordirs; Name: "{app}"
 
 [Code]
 var
+  ModePage: TInputOptionWizardPage;
   CfPage: TInputQueryWizardPage;
   AccessToken: String;
 
@@ -63,14 +64,27 @@ begin
   Result := GetMD5OfString(GetDateTimeString('yyyy-mm-dd hh:nn:ss.zzz', '-', ':'));
 end;
 
+function QuickEnabled(): Boolean;
+begin
+  Result := ModePage.Values[0];
+end;
+
 procedure InitializeWizard();
 begin
   AccessToken := GenToken();
-  CfPage := CreateInputQueryPage(wpWelcome,
-    'Connectivity',
-    'Cloudflare tunnel and app access token',
-    'To reach this site remotely, paste the Cloudflare Tunnel connector token (from the Cloudflare Zero Trust dashboard). Leave it blank to set up the tunnel later.' + #13#10 + #13#10 +
-    'The app access token below is generated for you — copy it into the Android app under Settings -> Access token.');
+
+  ModePage := CreateInputOptionPage(wpWelcome,
+    'Remote access', 'How should the app reach this site from anywhere?',
+    'Recommended: a free instant tunnel — no Cloudflare account, token or dashboard needed. The gateway creates a public web address automatically and shows it on its status page after install.',
+    False, False);
+  ModePage.Add('Use a free instant Cloudflare tunnel (recommended)');
+  ModePage.Values[0] := True;
+
+  CfPage := CreateInputQueryPage(ModePage.ID,
+    'Advanced (optional)',
+    'Custom Cloudflare domain',
+    'Only needed if you UNTICKED the instant tunnel and want your own permanent domain. Paste a Cloudflare Tunnel connector token; otherwise leave blank.' + #13#10 + #13#10 +
+    'The app access token below is generated for you — copy it into the app under Settings -> Access token.');
   CfPage.Add('Cloudflare Tunnel token (optional):', False);
   CfPage.Add('App access token (copy this):', False);
   CfPage.Values[1] := AccessToken;
@@ -81,14 +95,15 @@ begin
   Result := Trim(CfPage.Values[0]);
 end;
 
+{ Install cloudflared as its own service only in advanced mode with a token. }
 function CloudflareProvided(): Boolean;
 begin
-  Result := Trim(CfPage.Values[0]) <> '';
+  Result := (not QuickEnabled()) and (Trim(CfPage.Values[0]) <> '');
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  ConfigPath, Token, Json: String;
+  ConfigPath, Token, Json, QuickStr: String;
 begin
   if CurStep = ssPostInstall then
   begin
@@ -99,12 +114,14 @@ begin
       Token := Trim(CfPage.Values[1]);
       if Token = '' then
         Token := AccessToken;
+      if QuickEnabled() then QuickStr := 'true' else QuickStr := 'false';
       Json :=
         '{' + #13#10 +
         '  "listenPort": 8787,' + #13#10 +
         '  "pollIntervalSec": 10,' + #13#10 +
         '  "discoveryIntervalSec": 300,' + #13#10 +
         '  "discover": true,' + #13#10 +
+        '  "quickTunnel": ' + QuickStr + ',' + #13#10 +
         '  "token": "' + Token + '",' + #13#10 +
         '  "subnets": [],' + #13#10 +
         '  "miners": []' + #13#10 +
