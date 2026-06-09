@@ -40,23 +40,13 @@ jobs:
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Upload APK
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: wlm-asic-manager-debug
-          path: android/app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
-
       # Publish an installable APK to a GitHub Release so it can be downloaded
       # straight to a phone. Runs only on branch pushes (not PRs).
-      - name: Stage APK + gateway for release
+      - name: Stage APK for release
         if: success() && github.event_name == 'push'
         run: |
           mkdir -p "$GITHUB_WORKSPACE/dist"
           cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/dist/WLM-ASIC-Manager-latest.apk"
-          cd "$GITHUB_WORKSPACE"
-          zip -r dist/WLM-Gateway.zip gateway -x 'gateway/node_modules/*' 'gateway/config.json' 'gateway/windows/node_modules/*'
 
       - name: Publish Release
         if: success() && github.event_name == 'push'
@@ -66,17 +56,14 @@ jobs:
           tag_name: app-latest
           target_commitish: ${{ github.sha }}
           body: |
-            Latest WLM ASIC Manager build.
+            Latest WLM ASIC Manager Android build for sideloading.
 
-            **App (phone):** download `WLM-ASIC-Manager-latest.apk` below, tap it
-            (allow "install from unknown sources"). Demo mode is on by default —
-            turn it off in Settings to connect to real miners. Debug-signed.
+            **Install on your phone:** download `WLM-ASIC-Manager-latest.apk`
+            below and tap it (allow "install from unknown sources"). Demo mode is
+            on by default — turn it off in Settings to connect to real miners.
+            Debug-signed (not a Play Store build).
 
-            **Site gateway:** download `WLM-Gateway.zip` and run it on an
-            always-on PC at each site (see `gateway/README.md` inside). Exposes
-            one API over a Cloudflare tunnel so the app reaches that site
-            remotely.
-          files: |
-            dist/WLM-ASIC-Manager-latest.apk
-            dist/WLM-Gateway.zip
+            The **site gateway** lives on its own release: see `gateway-latest`
+            (one-click Windows installer + source zip).
+          files: dist/WLM-ASIC-Manager-latest.apk
           fail_on_unmatched_files: true

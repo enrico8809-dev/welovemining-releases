@@ -62,6 +62,11 @@ jobs:
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" gateway/installer/wlm-gateway.iss
           Get-ChildItem gateway/installer/Output
 
+      - name: Package source zip (for non-Windows sites)
+        shell: pwsh
+        run: |
+          Compress-Archive -Path gateway/server.js,gateway/package.json,gateway/config.example.json,gateway/README.md,gateway/windows -DestinationPath gateway/installer/Output/WLM-Gateway.zip -Force
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -77,13 +82,17 @@ jobs:
           tag_name: gateway-latest
           target_commitish: ${{ github.sha }}
           body: |
-            One-click Windows installer for the WLM site gateway.
+            Site gateway for WLM ASIC Manager.
 
-            **Per site:** run `WLM-Gateway-Setup.exe` on an always-on Windows PC
-            on the miners' LAN. It bundles Node + cloudflared, installs the
-            gateway as a service, and auto-discovers the miners on the network.
-            During setup, paste your Cloudflare Tunnel connector token (from the
-            Cloudflare Zero Trust dashboard) and copy the generated **app access
-            token** into the Android app (Settings -> Access token).
-          files: gateway/installer/Output/WLM-Gateway-Setup.exe
+            **Windows (recommended):** run `WLM-Gateway-Setup.exe` on an always-on
+            Windows PC on the miners' LAN. It bundles Node + cloudflared, installs
+            the gateway as a service, and auto-discovers the miners. During setup,
+            paste your Cloudflare Tunnel connector token and copy the generated
+            **app access token** into the app (Settings → Access token).
+
+            **Other OS:** `WLM-Gateway.zip` contains the raw gateway — run
+            `node server.js` (see `README.md` inside).
+          files: |
+            gateway/installer/Output/WLM-Gateway-Setup.exe
+            gateway/installer/Output/WLM-Gateway.zip
           fail_on_unmatched_files: true
