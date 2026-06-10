@@ -1,14 +1,17 @@
-# WLM Gateway
+# WLM Site Manager
 
-The site-side aggregator for **WLM ASIC Manager**. It runs on a small always-on
-machine on the same LAN as your miners (a Raspberry Pi, mini-PC, or the box that
-already runs your Miner Manager), polls every miner's firmware, and serves a
-single normalized API. Published through a **Cloudflare tunnel**, it lets the
-Android app reach the whole fleet from anywhere without port-forwarding.
+The on-site manager for **WLM ASIC Manager**. Installed on an always-on Windows
+PC at each client mining site, it auto-discovers the miners, shows a live
+dashboard in its own desktop window, and links the site to the phone app over a
+secure tunnel — no port-forwarding. The WLM operator adds every client site to
+their app and sees all sites at once; each client adds just their own.
 
 ```
-Android app  ──HTTPS──▶  Cloudflare tunnel  ──▶  this gateway  ──LAN──▶  miners
+Phone app  ──HTTPS──▶  tunnel  ──▶  Site Manager (Windows)  ──LAN──▶  miners
 ```
+
+Firmware support: **Braiins OS+** (first-class), Bitmain stock, Avalon/CGMiner,
+VNish.
 
 The gateway itself has **zero npm dependencies** — Node.js 18+ only.
 

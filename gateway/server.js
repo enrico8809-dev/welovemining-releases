@@ -368,51 +368,103 @@ async function locate(miner) {
 }
 
 function statusPage() {
-  const rows = minerList().map((m) => {
-    const s = cache.get(m.id);
-    return `<tr><td>${m.name}</td><td>${m.firmware}</td><td>${m.host}</td><td>${s ? s.state : "—"}</td><td>${s ? s.hashrateThs.toFixed(1) : "—"} TH/s</td></tr>`;
-  }).join("");
-  const banner = QUICK_TUNNEL
-    ? (publicUrl
-        ? `<div class="box"><b>Your public address (paste into the app → Gateway URL):</b><br><a href="${publicUrl}">${publicUrl}</a></div>`
-        : `<div class="box">Setting up your free tunnel… refresh in a few seconds.</div>`)
-    : "";
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="15"><title>WLM Gateway</title>
-<style>body{font-family:system-ui,Segoe UI,sans-serif;background:#0a0d12;color:#e7ecf3;margin:0;padding:32px}
-h1{color:#f7931a}a{color:#f7931a}table{border-collapse:collapse;width:100%;max-width:760px}td,th{border-bottom:1px solid #2a3442;padding:8px 12px;text-align:left}small{color:#8c97a8}
-.box{background:#121822;border:1px solid #2a3442;border-radius:10px;padding:14px 16px;margin:14px 0;max-width:760px;word-break:break-all}</style></head><body>
-<h1>WLM Gateway</h1><small>${minerList().length} miner(s) · poll ${POLL_MS / 1000}s · discovery ${DISCOVER ? `every ${DISCOVERY_MS / 1000}s` : "off"} · API /api/v1/fleet</small>
-${banner}
-<table><tr><th>Name</th><th>Firmware</th><th>Host</th><th>State</th><th>Hashrate</th></tr>${rows}</table></body></html>`;
+  const siteName = config.siteName || "WLM Site Manager";
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${siteName} — WLM Site Manager</title>
+<style>
+:root{--bg:#0a0d12;--surf:#121822;--surf2:#1a2230;--line:#2a3442;--fg:#e7ecf3;--mut:#8c97a8;--orange:#f7931a;--good:#34d399;--warn:#fbbf24;--bad:#f87171;--water:#38bdf8;--power:#a78bfa}
+*{box-sizing:border-box}body{font-family:system-ui,'Segoe UI',sans-serif;background:var(--bg);color:var(--fg);margin:0;padding:24px 28px}
+h1{color:var(--orange);font-size:22px;margin:0}small{color:var(--mut)}a{color:var(--orange)}
+.head{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:16px}
+.totals{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:14px 0 20px}
+.card{background:linear-gradient(180deg,var(--surf2),var(--surf));border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+.card .lbl{font-size:11px;letter-spacing:1px;color:var(--mut)}.card .val{font-family:ui-monospace,Consolas,monospace;font-size:24px;font-weight:700;margin-top:4px}
+.box{background:var(--surf);border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin:10px 0;word-break:break-all}
+table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid var(--line);padding:9px 12px;text-align:left;font-size:14px}
+th{color:var(--mut);font-size:11px;letter-spacing:1px;text-transform:uppercase}
+.pill{display:inline-block;padding:2px 10px;border-radius:99px;font-size:11px;font-weight:600}
+.ONLINE{background:rgba(52,211,153,.13);color:var(--good)}.WARNING{background:rgba(251,191,36,.13);color:var(--warn)}.OFFLINE,.ERROR{background:rgba(248,113,113,.13);color:var(--bad)}
+.mono{font-family:ui-monospace,Consolas,monospace}.water{color:var(--water)}.power{color:var(--power)}
+button{background:var(--orange);color:#1a1206;border:0;border-radius:8px;padding:5px 12px;font-weight:600;cursor:pointer}button:hover{filter:brightness(1.1)}
+</style></head><body>
+<div class="head"><div><h1>⛏ ${siteName}</h1><small>WLM Site Manager · <span id="meta">loading…</span></small></div><div id="pub"></div></div>
+<div class="totals">
+  <div class="card"><div class="lbl">HASHRATE</div><div class="val" style="color:var(--orange)" id="t-hash">—</div></div>
+  <div class="card"><div class="lbl">POWER</div><div class="val power" id="t-pow">—</div></div>
+  <div class="card"><div class="lbl">MINERS ONLINE</div><div class="val" style="color:var(--good)" id="t-on">—</div></div>
+  <div class="card"><div class="lbl">HOTTEST</div><div class="val" id="t-temp">—</div></div>
+</div>
+<table><thead><tr><th>Miner</th><th>Firmware</th><th>IP</th><th>State</th><th>Hashrate</th><th>Power</th><th>Temp</th><th>Water in→out</th><th></th></tr></thead><tbody id="rows"></tbody></table>
+<script>
+async function refresh(){
+  try{
+    const f=await (await fetch('/api/v1/fleet')).json();
+    const t=await (await fetch('/api/v1/tunnel')).json();
+    document.getElementById('pub').innerHTML = t.url?'<div class="box"><b>App address:</b> <a href="'+t.url+'">'+t.url+'</a></div>':'';
+    const ms=f.miners||[];const on=ms.filter(m=>m.stats&&(m.stats.state=='ONLINE'||m.stats.state=='WARNING'));
+    const hash=on.reduce((a,m)=>a+m.stats.hashrateThs,0), pow=on.reduce((a,m)=>a+m.stats.powerW,0);
+    const hot=Math.max(0,...on.map(m=>m.stats.maxTempC));
+    document.getElementById('t-hash').textContent=hash>=1000?(hash/1000).toFixed(2)+' PH/s':hash.toFixed(1)+' TH/s';
+    document.getElementById('t-pow').textContent=(pow/1000).toFixed(2)+' kW';
+    document.getElementById('t-on').textContent=on.length+' / '+ms.length;
+    document.getElementById('t-temp').textContent=hot?hot.toFixed(0)+'°C':'—';
+    document.getElementById('meta').textContent=ms.length+' miners · auto-discovery on · updated '+new Date().toLocaleTimeString();
+    document.getElementById('rows').innerHTML=ms.map(m=>{const s=m.stats||{};const st=s.state||'OFFLINE';
+      const water=s.hydro?('<span class="water">'+s.hydro.inletTempC.toFixed(0)+'°→'+s.hydro.outletTempC.toFixed(0)+'°</span>'):'—';
+      return '<tr><td><b>'+(m.model||m.name)+'</b></td><td><small>'+(s.firmwareVersion||m.firmware||'')+'</small></td><td class="mono">'+m.host+'</td>'+
+      '<td><span class="pill '+st+'">'+st+'</span></td><td class="mono">'+(s.hashrateThs||0).toFixed(1)+' TH/s</td>'+
+      '<td class="mono power">'+((s.powerW||0)/1000).toFixed(2)+' kW</td><td class="mono">'+(s.maxTempC||0).toFixed(0)+'°C</td><td>'+water+'</td>'+
+      '<td><button onclick="reboot(\\''+m.id+'\\',\\''+(m.name||m.host)+'\\')">Reboot</button></td></tr>';}).join('');
+  }catch(e){document.getElementById('meta').textContent='connection error — retrying…';}
+}
+async function reboot(id,name){if(!confirm('Reboot '+name+'?'))return;await fetch('/api/v1/miners/'+encodeURIComponent(id)+'/reboot',{method:'POST'});}
+refresh();setInterval(refresh,10000);
+</script></body></html>`;
 }
 
 // ===========================================================================
 //  Free instant tunnel (Cloudflare quick tunnel — no account/token needed)
 // ===========================================================================
 
-function startQuickTunnel(port) {
+function cloudflaredBin() {
   const exe = process.platform === "win32" ? "cloudflared.exe" : "cloudflared";
   const local = join(here, exe);
-  const bin = existsSync(local) ? local : exe; // bundled next to server.js, else PATH
+  return existsSync(local) ? local : exe; // bundled next to server.js, else PATH
+}
+
+function runTunnel(args, onUrl) {
   let proc;
   try {
-    proc = spawn(bin, ["tunnel", "--no-autoupdate", "--url", `http://localhost:${port}`], { windowsHide: true });
+    proc = spawn(cloudflaredBin(), args, { windowsHide: true });
   } catch (e) {
     console.error("Could not start cloudflared:", e.message);
     return;
   }
   const scan = (buf) => {
     const m = buf.toString().match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/i);
-    if (m && publicUrl !== m[0]) { publicUrl = m[0]; console.log("Public tunnel URL:", publicUrl); }
+    if (m) onUrl?.(m[0]);
   };
   proc.stdout?.on("data", scan);
-  proc.stderr?.on("data", scan); // cloudflared prints the URL to stderr
+  proc.stderr?.on("data", scan); // cloudflared logs to stderr
   proc.on("error", (e) => console.error("cloudflared error:", e.message));
   proc.on("exit", (code) => {
-    console.log(`cloudflared exited (${code}); restarting in 3s`);
-    publicUrl = null;
-    setTimeout(() => startQuickTunnel(port), 3000);
+    console.log(`cloudflared exited (${code}); restarting in 5s`);
+    publicUrl = config.tunnelToken ? publicUrl : null;
+    setTimeout(() => startTunnel(config.listenPort || 8787), 5000);
   });
+}
+
+/** Stable mode (connection code = named-tunnel token) or free quick tunnel. */
+function startTunnel(port) {
+  if (config.tunnelToken) {
+    // Permanent hostname is configured in the operator's Cloudflare dashboard;
+    // here we just keep the connector alive.
+    if (config.publicUrl) publicUrl = config.publicUrl;
+    runTunnel(["tunnel", "run", "--token", config.tunnelToken]);
+  } else if (QUICK_TUNNEL) {
+    runTunnel(["tunnel", "--no-autoupdate", "--url", `http://localhost:${port}`], (u) => {
+      if (publicUrl !== u) { publicUrl = u; console.log("Public tunnel URL:", publicUrl); }
+    });
+  }
 }
 
 // ===========================================================================
@@ -421,6 +473,13 @@ function startQuickTunnel(port) {
 
 function authed(req, url) {
   if (!config.token) return true;
+  // The local desktop window / on-site browser is trusted: loopback requests
+  // WITHOUT Cloudflare headers are local (tunnel traffic also arrives on
+  // loopback, but always carries cf-* headers).
+  const ra = req.socket.remoteAddress || "";
+  const isLoopback = ra === "127.0.0.1" || ra === "::1" || ra === "::ffff:127.0.0.1";
+  const viaTunnel = req.headers["cf-ray"] != null || req.headers["cf-connecting-ip"] != null;
+  if (isLoopback && !viaTunnel) return true;
   const h = req.headers["authorization"] || "";
   if (h === `Bearer ${config.token}`) return true;
   if (req.headers["cf-access-jwt-assertion"] != null) return true;
@@ -470,7 +529,7 @@ const server = http.createServer(async (req, res) => {
 
 (async () => {
   const port = config.listenPort || 8787;
-  if (QUICK_TUNNEL) startQuickTunnel(port);
+  startTunnel(port);
   await refreshDiscovery();
   if (DISCOVER) setInterval(refreshDiscovery, DISCOVERY_MS);
   await pollAll();

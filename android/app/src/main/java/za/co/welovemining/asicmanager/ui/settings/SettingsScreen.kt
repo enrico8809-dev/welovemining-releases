@@ -10,30 +10,44 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import za.co.welovemining.asicmanager.data.connection.ConnectionMode
+import za.co.welovemining.asicmanager.data.settings.Site
 import za.co.welovemining.asicmanager.ui.components.BrandMark
+import za.co.welovemining.asicmanager.ui.theme.WlmDanger
 import za.co.welovemining.asicmanager.ui.theme.WlmOnSurfaceMuted
 import za.co.welovemining.asicmanager.ui.theme.WlmOrange
+import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -42,6 +56,7 @@ fun SettingsScreen(
     contentPadding: PaddingValues,
 ) {
     val s by viewModel.settings.collectAsStateWithLifecycle()
+    var editingSite by remember { mutableStateOf<Site?>(null) }
 
     Column(
         Modifier
@@ -65,51 +80,46 @@ fun SettingsScreen(
             )
         }
 
-        SettingsGroup("Connectivity") {
-            Text("Connection mode", style = MaterialTheme.typography.labelLarge, color = WlmOnSurfaceMuted)
-            Spacer(Modifier.height(8.dp))
-            val modes = ConnectionMode.entries
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                modes.forEachIndexed { i, mode ->
-                    SegmentedButton(
-                        selected = s.connectionMode == mode,
-                        onClick = { viewModel.setConnectionMode(mode) },
-                        shape = SegmentedButtonDefaults.itemShape(i, modes.size),
-                    ) { Text(mode.name) }
-                }
-            }
-            Spacer(Modifier.height(6.dp))
+        SettingsGroup("My sites") {
             Text(
-                when (s.connectionMode) {
-                    ConnectionMode.AUTO -> "Direct on LAN, fall back to the Cloudflare tunnel when away."
-                    ConnectionMode.LAN -> "Only talk to miners directly on the local network."
-                    ConnectionMode.GATEWAY -> "Always go through the Cloudflare tunnel gateway."
-                },
+                "Each mining site runs the WLM Site Manager (Windows). Add a site with its address and access token from the Site Manager dashboard.",
                 style = MaterialTheme.typography.labelSmall, color = WlmOnSurfaceMuted,
             )
-
-            if (s.connectionMode != ConnectionMode.LAN) {
-                Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = s.gatewayUrl,
-                    onValueChange = viewModel::setGatewayUrl,
-                    label = { Text("Gateway URL (Cloudflare tunnel)") },
-                    placeholder = { Text("https://miners.welovemining.co.za") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = s.gatewayToken,
-                    onValueChange = viewModel::setGatewayToken,
-                    label = { Text("Access token") },
-                    placeholder = { Text("Cloudflare Access service token / bearer") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+            Spacer(Modifier.height(10.dp))
+            s.sites.forEach { site ->
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(site.name, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                        Text(site.url, style = MaterialTheme.typography.labelSmall, color = WlmOnSurfaceMuted, maxLines = 1)
+                    }
+                    IconButton(onClick = { editingSite = site }) {
+                        Icon(Icons.Filled.Edit, contentDescription = "Edit", tint = WlmOnSurfaceMuted)
+                    }
+                    IconButton(onClick = { viewModel.deleteSite(site.id) }) {
+                        Icon(Icons.Filled.Delete, contentDescription = "Remove", tint = WlmDanger)
+                    }
+                }
             }
+            if (s.sites.isEmpty()) {
+                Text("No sites yet.", style = MaterialTheme.typography.bodyMedium, color = WlmOnSurfaceMuted)
+                Spacer(Modifier.height(6.dp))
+            }
+            Button(
+                onClick = { editingSite = Site(id = UUID.randomUUID().toString(), name = "", url = "") },
+                colors = ButtonDefaults.buttonColors(containerColor = WlmOrange, contentColor = Color(0xFF1A1206)),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp)); Text("Add site")
+            }
+        }
 
-            if (s.connectionMode != ConnectionMode.GATEWAY) {
+        if (s.sites.isEmpty()) {
+            SettingsGroup("Direct LAN (advanced)") {
+                Text("Without a Site Manager, the app can talk to miners directly on the same Wi-Fi.", style = MaterialTheme.typography.labelSmall, color = WlmOnSurfaceMuted)
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = s.lanSubnet,
@@ -142,11 +152,50 @@ fun SettingsScreen(
 
         SettingsGroup("About") {
             InfoRow("App", "WLM ASIC Manager")
-            InfoRow("Version", "1.0.0")
+            InfoRow("Version", "2.0.0")
             InfoRow("Firmware support", "Braiins OS+, VNish, Avalon/CGMiner, Bitmain")
             InfoRow("Support", "enrico@welovemining.co.za")
         }
     }
+
+    editingSite?.let { site ->
+        SiteEditorDialog(
+            site = site,
+            onSave = { viewModel.saveSite(it); editingSite = null },
+            onDismiss = { editingSite = null },
+        )
+    }
+}
+
+@Composable
+private fun SiteEditorDialog(site: Site, onSave: (Site) -> Unit, onDismiss: () -> Unit) {
+    var name by remember { mutableStateOf(site.name) }
+    var url by remember { mutableStateOf(site.url) }
+    var token by remember { mutableStateOf(site.token) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (site.name.isBlank()) "Add site" else "Edit site") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Site name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = url, onValueChange = { url = it }, label = { Text("Site address") }, placeholder = { Text("https://client1.welovemining.co.za") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = token, onValueChange = { token = it }, label = { Text("Access token") }, placeholder = { Text("From the Site Manager") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    var u = url.trim()
+                    if (u.isNotBlank() && !u.startsWith("http")) u = "https://$u"
+                    onSave(site.copy(name = name.trim().ifBlank { "Site" }, url = u.trimEnd('/'), token = token.trim()))
+                },
+                enabled = name.isNotBlank() && url.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(containerColor = WlmOrange, contentColor = Color(0xFF1A1206)),
+            ) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        containerColor = MaterialTheme.colorScheme.surface,
+    )
 }
 
 @Composable

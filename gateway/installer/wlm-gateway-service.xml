@@ -1,7 +1,7 @@
 <service>
   <id>WLMGateway</id>
-  <name>WLM Gateway</name>
-  <description>WeLoveMining ASIC Manager site gateway — LAN poller + tunnel API.</description>
+  <name>WLM Site Manager</name>
+  <description>WeLoveMining Site Manager — monitors and manages the ASIC miners on this site and links them to the WLM app.</description>
   <executable>%BASE%\node.exe</executable>
   <arguments>"%BASE%\server.js"</arguments>
   <workingdirectory>%BASE%</workingdirectory>

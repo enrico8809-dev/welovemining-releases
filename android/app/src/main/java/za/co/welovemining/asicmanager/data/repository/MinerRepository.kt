@@ -16,6 +16,7 @@ import za.co.welovemining.asicmanager.data.remote.firmware.MinerApiClient
 import za.co.welovemining.asicmanager.data.remote.firmware.VnishClient
 import za.co.welovemining.asicmanager.data.remote.gateway.GatewayClient
 import za.co.welovemining.asicmanager.data.settings.AppSettings
+import za.co.welovemining.asicmanager.data.settings.Site
 
 /** Result of one fleet poll, including which transport answered. */
 data class FleetResult(
@@ -55,6 +56,11 @@ class MinerRepository(
         if (settings.demoMode) {
             return FleetResult(MockData.fleet(tick), ActiveLink.LAN)
         }
+        // Site Managers configured → they ARE the fleet (one site for a client,
+        // every client site for the WLM operator).
+        if (settings.sites.isNotEmpty()) {
+            return pollSites(settings.sites)
+        }
         return when (settings.connectionMode) {
             ConnectionMode.GATEWAY -> pollGateway(settings, miners)
             ConnectionMode.LAN -> FleetResult(pollLan(miners), ActiveLink.LAN)
@@ -68,6 +74,41 @@ class MinerRepository(
                 }
             }
         }
+    }
+
+    /** Fetch every configured site in parallel and merge into one fleet. */
+    private suspend fun pollSites(sites: List<Site>): FleetResult = coroutineScope {
+        val items = sites.map { site ->
+            async {
+                gateway.fetchFleet(site.url, site.token.ifBlank { null }).fold(
+                    onSuccess = { list ->
+                        list.map { mw ->
+                            mw.copy(miner = mw.miner.copy(
+                                id = "${site.id}$SITE_SEP${mw.miner.id}",
+                                groupName = site.name,
+                            ))
+                        }
+                    },
+                    onFailure = { e ->
+                        val id = "${site.id}$SITE_SEP-unreachable"
+                        listOf(MinerWithStats(
+                            Miner(id = id, name = "${site.name} — unreachable", lanHost = site.url, groupName = site.name),
+                            MinerStats.offline(id, e.message),
+                        ))
+                    },
+                )
+            }
+        }.map { it.await() }.flatten()
+        val link = if (items.any { it.stats?.isOnline == true }) ActiveLink.GATEWAY else ActiveLink.OFFLINE
+        FleetResult(items, link)
+    }
+
+    /** Resolve a site-prefixed miner id back to (site, original id). */
+    private fun siteFor(settings: AppSettings, minerId: String): Pair<Site, String>? {
+        val sep = minerId.indexOf(SITE_SEP)
+        if (sep < 0) return null
+        val site = settings.sites.firstOrNull { it.id == minerId.substring(0, sep) } ?: return null
+        return site to minerId.substring(sep + 1)
     }
 
     private suspend fun pollLan(miners: List<Miner>): List<MinerWithStats> = coroutineScope {
@@ -98,6 +139,9 @@ class MinerRepository(
 
     suspend fun reboot(settings: AppSettings, link: ActiveLink, miner: Miner): Result<Unit> {
         if (settings.demoMode) return Result.success(Unit)
+        siteFor(settings, miner.id)?.let { (site, id) ->
+            return gateway.reboot(site.url, site.token.ifBlank { null }, id)
+        }
         return if (link == ActiveLink.GATEWAY) {
             gateway.reboot(settings.gatewayUrl, settings.gatewayToken.ifBlank { null }, miner.id)
         } else {
@@ -107,10 +151,18 @@ class MinerRepository(
 
     suspend fun locate(settings: AppSettings, link: ActiveLink, miner: Miner, on: Boolean): Result<Unit> {
         if (settings.demoMode) return Result.success(Unit)
+        siteFor(settings, miner.id)?.let { (site, id) ->
+            return gateway.locate(site.url, site.token.ifBlank { null }, id, on)
+        }
         return if (link == ActiveLink.GATEWAY) {
             gateway.locate(settings.gatewayUrl, settings.gatewayToken.ifBlank { null }, miner.id, on)
         } else {
             clientFor(miner.firmware).locate(miner, on)
         }
+    }
+
+    companion object {
+        /** Separator between site id and the site-local miner id. */
+        const val SITE_SEP = "~"
     }
 }

@@ -1,9 +1,9 @@
-name: Gateway Installer
+name: Site Manager Installer
 
-# Builds the Windows one-click installer (Setup.exe) for the site gateway and
-# publishes it to the `gateway-latest` GitHub Release. The installer bundles
-# Node.js, cloudflared and the WinSW service wrapper, so the operator only needs
-# to paste a Cloudflare Tunnel token.
+# Builds the WLM Site Manager Windows installer and publishes it to the
+# `gateway-latest` GitHub Release. The installer bundles Node.js, cloudflared
+# and the WinSW service wrapper; the client only types a site name (and an
+# optional connection code for a permanent address).
 
 on:
   push:
@@ -31,12 +31,14 @@ jobs:
           $payload = "gateway/installer/payload"
           New-Item -ItemType Directory -Force -Path $payload | Out-Null
 
-          # Gateway app files
+          # Site Manager app files
           Copy-Item gateway/server.js          $payload/
           Copy-Item gateway/package.json       $payload/
           Copy-Item gateway/config.example.json $payload/
           Copy-Item gateway/README.md          $payload/
           Copy-Item gateway/installer/wlm-gateway-service.xml $payload/
+          Copy-Item "gateway/installer/WLM Site Manager.cmd"  $payload/
+          Copy-Item gateway/installer/wlm.ico  $payload/
 
           # Node.js runtime (bundled so no prerequisite install is needed)
           $node = "v20.18.1"
@@ -65,34 +67,37 @@ jobs:
       - name: Package source zip (for non-Windows sites)
         shell: pwsh
         run: |
-          Compress-Archive -Path gateway/server.js,gateway/package.json,gateway/config.example.json,gateway/README.md,gateway/windows -DestinationPath gateway/installer/Output/WLM-Gateway.zip -Force
+          Compress-Archive -Path gateway/server.js,gateway/package.json,gateway/config.example.json,gateway/README.md -DestinationPath gateway/installer/Output/WLM-SiteManager-source.zip -Force
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: wlm-gateway-setup
-          path: gateway/installer/Output/WLM-Gateway-Setup.exe
+          name: wlm-sitemanager-setup
+          path: gateway/installer/Output/WLM-SiteManager-Setup.exe
           if-no-files-found: error
 
       - name: Publish Release
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          name: WLM Gateway (Windows installer)
+          name: WLM Site Manager (Windows)
           tag_name: gateway-latest
           target_commitish: ${{ github.sha }}
           body: |
-            Site gateway for WLM ASIC Manager.
+            **WLM Site Manager** — install at each client mining site.
 
-            **Windows (recommended):** run `WLM-Gateway-Setup.exe` on an always-on
-            Windows PC on the miners' LAN. It bundles Node + cloudflared, installs
-            the gateway as a service, and auto-discovers the miners. During setup,
-            paste your Cloudflare Tunnel connector token and copy the generated
-            **app access token** into the app (Settings → Access token).
+            Run `WLM-SiteManager-Setup.exe` on an always-on Windows PC on the
+            miners' LAN. It auto-discovers the miners, shows a live dashboard
+            in its own desktop window, and links the site to the WLM ASIC
+            Manager phone app.
 
-            **Other OS:** `WLM-Gateway.zip` contains the raw gateway — run
-            `node server.js` (see `README.md` inside).
+            During install the client only types a **site name**. Paste a
+            **connection code** (provided by WeLoveMining) for a permanent
+            address, or leave it blank for a free auto-generated one (shown on
+            the dashboard). Copy the **app access token** into the phone app.
+
+            **Other OS:** `WLM-SiteManager-source.zip` — run `node server.js`.
           files: |
-            gateway/installer/Output/WLM-Gateway-Setup.exe
-            gateway/installer/Output/WLM-Gateway.zip
+            gateway/installer/Output/WLM-SiteManager-Setup.exe
+            gateway/installer/Output/WLM-SiteManager-source.zip
           fail_on_unmatched_files: true

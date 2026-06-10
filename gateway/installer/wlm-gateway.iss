@@ -1,109 +1,94 @@
-; WLM Gateway — Windows installer (Inno Setup 6)
+; WLM Site Manager — Windows installer (Inno Setup 6)
 ;
-; Bundles Node.js, cloudflared and the WinSW service wrapper, installs the
-; gateway as an auto-starting Windows service, writes config.json with a
-; generated access token, and (if a Cloudflare Tunnel token is entered)
-; installs cloudflared as a service so the site is reachable remotely.
+; One-click install for client sites. Bundles Node.js, cloudflared and the
+; WinSW service wrapper. The wizard asks only for a site name and an optional
+; "connection code" (a Cloudflare named-tunnel token the WLM operator hands
+; out for a permanent address). With no code, a free instant tunnel is used
+; and the public address is shown on the dashboard.
 ;
-; The build payload (node.exe, cloudflared.exe, wlm-gateway-service.exe,
-; server.js, package.json, config.example.json, README.md, the service .xml)
-; is staged into a "payload" folder next to this script by CI before ISCC runs.
+; CI stages the payload (node.exe, cloudflared.exe, wlm-gateway-service.exe,
+; server.js, config.example.json, README.md, service xml, launcher, icon)
+; into "payload" next to this script before ISCC runs.
 
-#define AppName "WLM Gateway"
-#define AppVersion "1.0.0"
+#define AppName "WLM Site Manager"
+#define AppVersion "2.0.0"
 
 [Setup]
 AppId={{B8E7B1C2-3D4F-4A5B-9C6D-1E2F3A4B5C6D}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher=WeLoveMining
-DefaultDirName={autopf}\WLM Gateway
-DefaultGroupName=WLM Gateway
+DefaultDirName={autopf}\WLM Site Manager
+DefaultGroupName=WLM Site Manager
 DisableProgramGroupPage=yes
 OutputDir=Output
-OutputBaseFilename=WLM-Gateway-Setup
+OutputBaseFilename=WLM-SiteManager-Setup
 Compression=lzma2
 SolidCompression=yes
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 WizardStyle=modern
+SetupIconFile=wlm.ico
+UninstallDisplayIcon={app}\wlm.ico
 
 [Files]
 Source: "payload\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
+[Tasks]
+Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Shortcuts:"
+
 [Icons]
-Name: "{group}\Uninstall WLM Gateway"; Filename: "{uninstallexe}"
+Name: "{group}\WLM Site Manager"; Filename: "{app}\WLM Site Manager.cmd"; IconFilename: "{app}\wlm.ico"
+Name: "{group}\Uninstall WLM Site Manager"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\WLM Site Manager"; Filename: "{app}\WLM Site Manager.cmd"; IconFilename: "{app}\wlm.ico"; Tasks: desktopicon
 
 [Run]
-; Install + start the gateway service (WinSW).
 Filename: "{app}\wlm-gateway-service.exe"; Parameters: "install"; Flags: runhidden waituntilterminated
 Filename: "{app}\wlm-gateway-service.exe"; Parameters: "start"; Flags: runhidden waituntilterminated
-; Install the Cloudflare tunnel connector as a service, only if a token was given.
-Filename: "{app}\cloudflared.exe"; Parameters: "service install {code:GetCfToken}"; Check: CloudflareProvided; Flags: runhidden waituntilterminated
-Filename: "http://localhost:8787/"; Description: "Open the gateway status page"; Flags: postinstall shellexec nowait
+Filename: "{app}\WLM Site Manager.cmd"; Description: "Open WLM Site Manager now"; Flags: postinstall shellexec nowait
 
 [UninstallRun]
 Filename: "{app}\wlm-gateway-service.exe"; Parameters: "stop"; Flags: runhidden waituntilterminated; RunOnceId: "StopSvc"
 Filename: "{app}\wlm-gateway-service.exe"; Parameters: "uninstall"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveSvc"
-Filename: "{app}\cloudflared.exe"; Parameters: "service uninstall"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveCf"
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
 
 [Code]
 var
-  ModePage: TInputOptionWizardPage;
-  CfPage: TInputQueryWizardPage;
+  SitePage: TInputQueryWizardPage;
   AccessToken: String;
 
 function GenToken(): String;
 begin
-  // Unique-per-install token derived from host + time (no RNG seed available
-  // in Inno's Pascal Script). MD5 gives a 32-char hex string.
   Result := GetMD5OfString(GetDateTimeString('yyyy-mm-dd hh:nn:ss.zzz', '-', ':'));
-end;
-
-function QuickEnabled(): Boolean;
-begin
-  Result := ModePage.Values[0];
 end;
 
 procedure InitializeWizard();
 begin
   AccessToken := GenToken();
-
-  ModePage := CreateInputOptionPage(wpWelcome,
-    'Remote access', 'How should the app reach this site from anywhere?',
-    'Recommended: a free instant tunnel — no Cloudflare account, token or dashboard needed. The gateway creates a public web address automatically and shows it on its status page after install.',
-    False, False);
-  ModePage.Add('Use a free instant Cloudflare tunnel (recommended)');
-  ModePage.Values[0] := True;
-
-  CfPage := CreateInputQueryPage(ModePage.ID,
-    'Advanced (optional)',
-    'Custom Cloudflare domain',
-    'Only needed if you UNTICKED the instant tunnel and want your own permanent domain. Paste a Cloudflare Tunnel connector token; otherwise leave blank.' + #13#10 + #13#10 +
-    'The app access token below is generated for you — copy it into the app under Settings -> Access token.');
-  CfPage.Add('Cloudflare Tunnel token (optional):', False);
-  CfPage.Add('App access token (copy this):', False);
-  CfPage.Values[1] := AccessToken;
+  SitePage := CreateInputQueryPage(wpWelcome,
+    'Site setup', 'Name this site and connect it',
+    'Give this mining site a name (it shows in the app). If WeLoveMining gave you a connection code, paste it for a permanent address — otherwise leave it blank and a free address is created automatically (shown on the dashboard after install).' + #13#10 + #13#10 +
+    'The app access token below links the phone app to this site — copy it now.');
+  SitePage.Add('Site name:', False);
+  SitePage.Add('Connection code (optional):', False);
+  SitePage.Add('App access token (copy this):', False);
+  SitePage.Values[0] := 'My Mining Site';
+  SitePage.Values[2] := AccessToken;
 end;
 
-function GetCfToken(Param: String): String;
+function JsonEscape(const S: String): String;
 begin
-  Result := Trim(CfPage.Values[0]);
-end;
-
-{ Install cloudflared as its own service only in advanced mode with a token. }
-function CloudflareProvided(): Boolean;
-begin
-  Result := (not QuickEnabled()) and (Trim(CfPage.Values[0]) <> '');
+  Result := S;
+  StringChangeEx(Result, '\', '\\', True);
+  StringChangeEx(Result, '"', '\"', True);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  ConfigPath, Token, Json, QuickStr: String;
+  ConfigPath, Token, CfToken, SiteName, QuickStr, Json: String;
 begin
   if CurStep = ssPostInstall then
   begin
@@ -111,17 +96,21 @@ begin
     // Preserve an existing config (and its token) across upgrades.
     if not FileExists(ConfigPath) then
     begin
-      Token := Trim(CfPage.Values[1]);
-      if Token = '' then
-        Token := AccessToken;
-      if QuickEnabled() then QuickStr := 'true' else QuickStr := 'false';
+      Token := Trim(SitePage.Values[2]);
+      if Token = '' then Token := AccessToken;
+      CfToken := Trim(SitePage.Values[1]);
+      SiteName := Trim(SitePage.Values[0]);
+      if SiteName = '' then SiteName := 'My Mining Site';
+      if CfToken = '' then QuickStr := 'true' else QuickStr := 'false';
       Json :=
         '{' + #13#10 +
+        '  "siteName": "' + JsonEscape(SiteName) + '",' + #13#10 +
         '  "listenPort": 8787,' + #13#10 +
         '  "pollIntervalSec": 10,' + #13#10 +
         '  "discoveryIntervalSec": 300,' + #13#10 +
         '  "discover": true,' + #13#10 +
         '  "quickTunnel": ' + QuickStr + ',' + #13#10 +
+        '  "tunnelToken": "' + JsonEscape(CfToken) + '",' + #13#10 +
         '  "token": "' + Token + '",' + #13#10 +
         '  "subnets": [],' + #13#10 +
         '  "miners": []' + #13#10 +

@@ -1,9 +1,12 @@
 {
+  "siteName": "My Mining Site",
   "listenPort": 8787,
   "pollIntervalSec": 10,
   "discoveryIntervalSec": 300,
   "discover": true,
-  "quickTunnel": false,
+  "quickTunnel": true,
+  "tunnelToken": "",
+  "publicUrl": "",
   "token": "change-me-to-a-long-random-string",
   "subnets": [],
   "miners": []

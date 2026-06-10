@@ -129,10 +129,13 @@ fun MinersScreen(
                 )
             }
             items(items, key = { it.miner.id }) { item ->
+                // Site-managed miners (id carries the site prefix) are removed by
+                // removing the site in Settings, not row-by-row.
+                val locallyManaged = !demoMode && !item.miner.id.contains('~')
                 MinerRow(
                     item = item,
                     onClick = { onMinerClick(item.miner.id) },
-                    onLongClick = if (demoMode) null else ({ pendingDelete = item }),
+                    onLongClick = if (locallyManaged) ({ pendingDelete = item }) else null,
                 )
             }
         }
