@@ -3,30 +3,44 @@ package za.co.welovemining.asicmanager.ui.miners
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import za.co.welovemining.asicmanager.data.model.MinerState
+import za.co.welovemining.asicmanager.data.model.MinerWithStats
 import za.co.welovemining.asicmanager.ui.FleetUiState
 import za.co.welovemining.asicmanager.ui.components.MinerRow
+import za.co.welovemining.asicmanager.ui.theme.WlmDanger
 import za.co.welovemining.asicmanager.ui.theme.WlmOnSurfaceMuted
+import za.co.welovemining.asicmanager.ui.theme.WlmOrange
 
 private enum class StatusFilter { ALL, ONLINE, ISSUES }
 
@@ -34,10 +48,15 @@ private enum class StatusFilter { ALL, ONLINE, ISSUES }
 fun MinersScreen(
     state: FleetUiState,
     onMinerClick: (String) -> Unit,
+    onAddMiner: () -> Unit,
+    onDiscover: () -> Unit,
     contentPadding: PaddingValues,
+    demoMode: Boolean = false,
+    onDeleteMiner: (String) -> Unit = {},
 ) {
     var query by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf(StatusFilter.ALL) }
+    var pendingDelete by remember { mutableStateOf<MinerWithStats?>(null) }
 
     val filtered = state.items.filter { item ->
         val matchesQuery = query.isBlank() ||
@@ -63,6 +82,22 @@ fun MinersScreen(
         ),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = onAddMiner,
+                    colors = ButtonDefaults.buttonColors(containerColor = WlmOrange, contentColor = Color(0xFF1A1206)),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp)); Text("Add miner")
+                }
+                OutlinedButton(onClick = onDiscover, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Filled.Radar, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp)); Text("Scan")
+                }
+            }
+        }
         item {
             OutlinedTextField(
                 value = query,
@@ -94,7 +129,36 @@ fun MinersScreen(
                 )
             }
             items(items, key = { it.miner.id }) { item ->
-                MinerRow(item = item, onClick = { onMinerClick(item.miner.id) })
+                // Site-managed miners (id carries the site prefix) are removed by
+                // removing the site in Settings, not row-by-row.
+                val locallyManaged = !demoMode && !item.miner.id.contains('~')
+                MinerRow(
+                    item = item,
+                    onClick = { onMinerClick(item.miner.id) },
+                    onLongClick = if (locallyManaged) ({ pendingDelete = item }) else null,
+                )
+            }
+        }
+
+        if (!demoMode && filtered.isNotEmpty()) {
+            item {
+                Text(
+                    "Long-press a miner to remove it.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = WlmOnSurfaceMuted,
+                    modifier = Modifier.padding(top = 4.dp, start = 4.dp),
+                )
+            }
+        }
+
+        if (demoMode) {
+            item {
+                Text(
+                    "Demo mode is on — these are sample miners. Turn it off in Settings to add and manage your own.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = WlmOnSurfaceMuted,
+                    modifier = Modifier.padding(top = 4.dp, start = 4.dp),
+                )
             }
         }
 
@@ -108,5 +172,21 @@ fun MinersScreen(
                 )
             }
         }
+    }
+
+    pendingDelete?.let { target ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("Remove ${target.miner.name}?") },
+            text = { Text("This removes it from your fleet. You can add it again later.") },
+            confirmButton = {
+                Button(
+                    onClick = { onDeleteMiner(target.miner.id); pendingDelete = null },
+                    colors = ButtonDefaults.buttonColors(containerColor = WlmDanger, contentColor = Color(0xFF2A0A0A)),
+                ) { Text("Remove") }
+            },
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Cancel") } },
+            containerColor = MaterialTheme.colorScheme.surface,
+        )
     }
 }

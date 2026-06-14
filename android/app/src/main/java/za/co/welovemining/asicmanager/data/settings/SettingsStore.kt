@@ -7,7 +7,10 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import za.co.welovemining.asicmanager.data.model.Miner
 
@@ -46,4 +49,21 @@ class SettingsStore(private val context: Context) {
     suspend fun saveMiners(miners: List<Miner>) {
         context.dataStore.edit { it[minersKey] = json.encodeToString(miners) }
     }
+
+    /**
+     * Atomic read-modify-write of the miner list. DataStore serializes edits, so
+     * concurrent add/delete operations can't clobber each other (which would
+     * otherwise resurrect a just-deleted miner from a stale in-memory copy).
+     */
+    suspend fun updateMiners(transform: (List<Miner>) -> List<Miner>) {
+        context.dataStore.edit { prefs ->
+            val current = prefs[minersKey]?.let {
+                runCatching { json.decodeFromString<List<Miner>>(it) }.getOrNull()
+            } ?: emptyList()
+            prefs[minersKey] = json.encodeToString(transform(current))
+        }
+    }
+
+    /** Latest persisted miner list (one-shot read). */
+    suspend fun minersSnapshot(): List<Miner> = miners.first()
 }

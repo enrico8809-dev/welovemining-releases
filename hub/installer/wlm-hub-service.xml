@@ -1,0 +1,14 @@
+<service>
+  <id>WLMHub</id>
+  <name>WLM Hub</name>
+  <description>WeLoveMining Hub — central relay that aggregates all site agents for the web dashboard and the WLM app.</description>
+  <executable>%BASE%\node.exe</executable>
+  <arguments>"%BASE%\server.js"</arguments>
+  <workingdirectory>%BASE%</workingdirectory>
+  <onfailure action="restart" delay="5 sec" />
+  <log mode="roll-by-size">
+    <sizeThreshold>5120</sizeThreshold>
+    <keepFiles>2</keepFiles>
+  </log>
+  <startmode>Automatic</startmode>
+</service>

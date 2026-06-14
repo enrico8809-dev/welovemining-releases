@@ -1,0 +1,75 @@
+name: Release APK
+
+# Publishes an installable APK as a GitHub Release asset so it can be
+# downloaded straight to a phone. Run manually from the Actions tab (provide a
+# version), or push a tag like `app-v1.0.0`.
+
+on:
+  push:
+    tags:
+      - "app-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version (without the app-v prefix), e.g. 1.0.0"
+        required: true
+        default: "1.0.0"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & publish APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve release tag
+        id: meta
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=app-v${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Build debug APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug --stacktrace --no-daemon
+
+      - name: Stage APK
+        run: |
+          mkdir -p dist
+          cp android/app/build/outputs/apk/debug/app-debug.apk "dist/WLM-ASIC-Manager-${{ steps.meta.outputs.tag }}.apk"
+          ls -la dist
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "WLM ASIC Manager ${{ steps.meta.outputs.tag }}"
+          tag_name: ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          body: |
+            WLM ASIC Manager Android app — sideload build.
+
+            **Install on your phone:** open this page on the phone, download the
+            `.apk` below, then tap it (allow "install from unknown sources" if
+            prompted). Demo mode is on by default; turn it off in Settings to
+            connect to real miners.
+
+            > Debug-signed for easy sideloading (not a Play Store build).
+          files: dist/*.apk
+          fail_on_unmatched_files: true

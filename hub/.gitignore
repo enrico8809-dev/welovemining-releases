@@ -1,0 +1,6 @@
+config.json
+state.json
+node_modules/
+*.log
+installer/payload/
+installer/Output/

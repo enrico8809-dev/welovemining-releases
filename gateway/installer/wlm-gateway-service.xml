@@ -1,0 +1,14 @@
+<service>
+  <id>WLMGateway</id>
+  <name>WLM Site Agent</name>
+  <description>WeLoveMining Site Agent — discovers the ASIC miners on this site and reports them to the WLM Hub.</description>
+  <executable>%BASE%\node.exe</executable>
+  <arguments>"%BASE%\server.js"</arguments>
+  <workingdirectory>%BASE%</workingdirectory>
+  <onfailure action="restart" delay="5 sec" />
+  <log mode="roll-by-size">
+    <sizeThreshold>5120</sizeThreshold>
+    <keepFiles>2</keepFiles>
+  </log>
+  <startmode>Automatic</startmode>
+</service>

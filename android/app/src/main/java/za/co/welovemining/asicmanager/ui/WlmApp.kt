@@ -17,10 +17,14 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import za.co.welovemining.asicmanager.data.discovery.MinerDiscovery
 import za.co.welovemining.asicmanager.data.repository.MinerRepository
 import za.co.welovemining.asicmanager.data.settings.SettingsStore
 import za.co.welovemining.asicmanager.ui.alerts.AlertsScreen
 import za.co.welovemining.asicmanager.ui.dashboard.DashboardScreen
+import za.co.welovemining.asicmanager.ui.discovery.DiscoveryScreen
+import za.co.welovemining.asicmanager.ui.discovery.DiscoveryViewModel
+import za.co.welovemining.asicmanager.ui.editor.MinerEditorScreen
 import za.co.welovemining.asicmanager.ui.minerdetail.MinerDetailScreen
 import za.co.welovemining.asicmanager.ui.miners.MinersScreen
 import za.co.welovemining.asicmanager.ui.navigation.Routes
@@ -30,7 +34,11 @@ import za.co.welovemining.asicmanager.ui.settings.SettingsViewModel
 import za.co.welovemining.asicmanager.ui.theme.WlmOrange
 
 @Composable
-fun WlmApp(repository: MinerRepository, settingsStore: SettingsStore) {
+fun WlmApp(
+    repository: MinerRepository,
+    settingsStore: SettingsStore,
+    discovery: MinerDiscovery,
+) {
     val navController = rememberNavController()
     val fleetVm: FleetViewModel = viewModel(factory = FleetViewModel.factory(repository, settingsStore))
     val settingsVm: SettingsViewModel = viewModel(factory = SettingsViewModel.factory(settingsStore))
@@ -89,7 +97,11 @@ fun WlmApp(repository: MinerRepository, settingsStore: SettingsStore) {
                 MinersScreen(
                     state = fleetState,
                     onMinerClick = { navController.navigate(Routes.minerDetail(it)) },
+                    onAddMiner = { navController.navigate(Routes.MINER_NEW) },
+                    onDiscover = { navController.navigate(Routes.DISCOVERY) },
                     contentPadding = padding,
+                    demoMode = appSettings.demoMode,
+                    onDeleteMiner = { fleetVm.deleteMiner(it) },
                 )
             }
             composable(TopDestination.ALERTS.route) {
@@ -105,11 +117,49 @@ fun WlmApp(repository: MinerRepository, settingsStore: SettingsStore) {
             }
             composable(Routes.MINER_DETAIL) { entry ->
                 val minerId = entry.arguments?.getString("minerId").orEmpty()
+                val isConfigured = fleetVm.configuredMinerFor(minerId) != null
                 MinerDetailScreen(
                     item = fleetState.items.firstOrNull { it.miner.id == minerId },
                     onBack = { navController.popBackStack() },
                     onReboot = { fleetVm.reboot(minerId) },
                     onLocate = { on -> fleetVm.locate(minerId, on) },
+                    onEdit = if (isConfigured) {
+                        { navController.navigate(Routes.minerEdit(minerId)) }
+                    } else null,
+                )
+            }
+            composable(Routes.MINER_NEW) {
+                MinerEditorScreen(
+                    initial = null,
+                    onSave = { fleetVm.saveMiner(it) },
+                    onDelete = { },
+                    onBack = { navController.popBackStack() },
+                )
+            }
+            composable(Routes.MINER_EDIT) { entry ->
+                val minerId = entry.arguments?.getString("minerId").orEmpty()
+                MinerEditorScreen(
+                    initial = fleetVm.configuredMinerFor(minerId),
+                    onSave = { fleetVm.saveMiner(it) },
+                    onDelete = { id ->
+                        fleetVm.deleteMiner(id)
+                        // Leave the editor and the now-stale detail screen for the list.
+                        navController.navigate(TopDestination.MINERS.route) {
+                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                    onBack = { navController.popBackStack() },
+                )
+            }
+            composable(Routes.DISCOVERY) {
+                val discoveryVm: DiscoveryViewModel = viewModel(factory = DiscoveryViewModel.factory(discovery))
+                DiscoveryScreen(
+                    viewModel = discoveryVm,
+                    initialSubnet = appSettings.lanSubnet,
+                    onAdd = { fleetVm.addDiscovered(it) },
+                    onBack = { navController.popBackStack() },
                 )
             }
         }
