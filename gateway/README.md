@@ -1,101 +1,42 @@
-# WLM Site Manager
+# WLM Site Agent
 
-The on-site manager for **WLM ASIC Manager**. Installed on an always-on Windows
-PC at each client mining site, it auto-discovers the miners, shows a live
-dashboard in its own desktop window, and links the site to the phone app over a
-secure tunnel — no port-forwarding. The WLM operator adds every client site to
-their app and sees all sites at once; each client adds just their own.
+Runs on an always-on Windows PC at a client mining site. It auto-discovers the
+ASIC miners on the LAN (Braiins OS+ first-class, plus Bitmain stock, Avalon and
+VNish) and **dials out** to your central **WLM Hub** — nothing to open on the
+firewall, no Cloudflare at the site. A local dashboard is also served at
+`http://localhost:8787` for on-site staff.
 
 ```
-Phone app  ──HTTPS──▶  tunnel  ──▶  Site Manager (Windows)  ──LAN──▶  miners
+miners ◀─LAN─ WLM Site Agent ─outbound HTTPS─▶ WLM Hub ─▶ web dashboard + app
 ```
 
-Firmware support: **Braiins OS+** (first-class), Bitmain stock, Avalon/CGMiner,
-VNish.
+## Install (Windows)
 
-The gateway itself has **zero npm dependencies** — Node.js 18+ only.
+Download **`WLM-SiteAgent-Setup.exe`** from the `gateway-latest` release and run
+it. The wizard asks only for:
+- **Site name** — how this site shows in the app/Hub.
+- **Hub address** — e.g. `https://manage.welovemining.co.za`.
 
-## Easiest: one-click Windows installer (recommended)
+It installs as the **WLM Site Agent** service, generates its own site key, and
+starts reporting. The site appears in the Hub automatically.
 
-Download **`WLM-Gateway-Setup.exe`** from the `gateway-latest` release and run it
-on an always-on Windows PC on the miners' LAN. It bundles Node + cloudflared,
-installs the gateway as an auto-starting service, and **auto-discovers the
-miners** on the network — there's no miner list to edit.
+## Other OS
 
-During setup you only:
-1. Leave **"Use a free instant Cloudflare tunnel" ticked** (recommended) — no
-   Cloudflare account, token or dashboard needed. The gateway creates a public
-   web address for you automatically.
-2. Copy the generated **app access token** into the Android app
-   (Settings → Access token).
+`WLM-SiteAgent-source.zip` (or this folder): set `hubUrl`, `siteKey` and
+`siteName` in `config.json`, then `node server.js` (Node 18+).
 
-After install, open **<http://localhost:8787>** on that PC — it shows your
-**public address** (e.g. `https://something.trycloudflare.com`). Put that into
-the app under **Settings → Gateway URL**, with the access token. Done.
+## config.json
 
-> The instant tunnel's address can change if the PC reboots — just re-open the
-> status page to get the current one. For a **permanent custom domain**
-> (`miners.yourdomain.com`), untick the instant tunnel during install and paste
-> a Cloudflare Tunnel connector token instead (then add a Public Hostname →
-> `localhost:8787` in the Cloudflare dashboard).
+| Field | Meaning |
+|---|---|
+| `hubUrl` | Central Hub address the agent reports to |
+| `siteKey` | Unique key identifying this site to the Hub |
+| `siteName` | Display name |
+| `discover` | Auto-scan the LAN for miners (default true) |
+| `subnets` | Optional explicit CIDRs; empty = auto-detect |
+| `miners` | Optional manual miner list (host/port/firmware) |
 
-## Manual run (any OS)
+> Diagnostics: `http://localhost:8787/api/v1/raw?host=<miner-ip>&cmd=stats`
+> dumps a miner's raw cgminer reply — handy for mapping firmware fields.
 
-If you'd rather not use the installer (Linux/macOS, or a Pi):
-
-1. Install **Node.js 18+**.
-2. `cp config.example.json config.json` and set a long random `token`. Leave
-   `discover: true` to auto-find miners (optionally set `subnets`), or list them
-   explicitly under `miners`.
-3. `node server.js` — or install as a service (Windows: the installer above;
-   Linux: a systemd unit). Browse to <http://localhost:8787> to confirm.
-
-Set the same `token` in the app under **Settings → Access token**.
-
-## API
-
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/api/v1/fleet` | All miners + latest normalized stats |
-| POST | `/api/v1/miners/:id/reboot` | Reboot / restart a miner |
-| POST | `/api/v1/miners/:id/locate` | Toggle locator (best-effort) |
-| GET | `/healthz` | Liveness (no auth) |
-
-Auth: `Authorization: Bearer <token>`. If you front the tunnel with
-**Cloudflare Access**, the `Cf-Access-Jwt-Assertion` header is also accepted.
-
-## Expose with a Cloudflare Tunnel (Windows)
-
-Prerequisite: your domain (e.g. `welovemining.co.za`) is on Cloudflare, and you
-have a Cloudflare Zero Trust account (the free plan is fine).
-
-**1. Create the tunnel in the dashboard** (easiest, token-based):
-Zero Trust → **Networks → Tunnels → Create a tunnel** → *Cloudflared* → name it
-`wlm` → add a **Public Hostname**:
-- Subdomain/Domain: `miners.welovemining.co.za`
-- Service: **HTTP** → `localhost:8787`
-
-Copy the **connector token** it displays.
-
-**2. Install the connector on the Windows box** (Administrator PowerShell):
-```powershell
-cd gateway\windows
-powershell -ExecutionPolicy Bypass -File setup-cloudflared.ps1 -Token "<CONNECTOR_TOKEN>"
-```
-This downloads `cloudflared.exe` and installs it as a Windows service. Within a
-few seconds the tunnel shows **HEALTHY** in the dashboard.
-
-**3. Point the app at it:** Settings → **Gateway URL** `https://miners.welovemining.co.za`
-+ your `token`. With **Connection mode = Auto**, the app talks directly to
-miners on the LAN and falls back to this tunnel when you're away.
-
-> CLI alternative (if you prefer config files): `cloudflared tunnel login`,
-> `cloudflared tunnel create wlm`, route DNS, and run with an `ingress` mapping
-> `miners.welovemining.co.za → http://localhost:8787`.
-
-## Supported firmware
-
-Braiins OS+ and Avalon/Bitmain via the cgminer socket (port 4028); VNish via its
-HTTP API (port 80, `password` in config for authed endpoints). This is a
-reference implementation — verify the field mappings against your hardware and
-extend `pollOne()` for LuxOS / Hiveon / Whatsminer as needed.
+The Hub (`../hub`) is installed once, centrally; see its README.

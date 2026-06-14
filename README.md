@@ -2,125 +2,45 @@
   <img src="docs/logo.png" alt="WeLoveMining" width="120" />
 </p>
 
-# WeLoveMining — Releases
+# WLM ASIC Manager
 
-Official downloads for the WeLoveMining ASIC miner management ecosystem.
-
-Two paired apps:
-
-| App | For | Where it runs |
-|---|---|---|
-| **WeLoveMining CRM** | You (the operator) | Windows PC, Android phone, or any web browser |
-| **WeLoveMining Miner Manager** | Each mining site (you or your customers) | Windows PC on the same LAN as the miners |
-
----
-
-## 📱 WLM ASIC Manager (Android, in development)
-
-A native Kotlin + Jetpack Compose app for monitoring and managing the fleet
-(hydro + air S19/S21/S23) on **Braiins OS+**, **VNish** and **Avalon** firmware —
-direct on the LAN, or from anywhere through a **Cloudflare tunnel**. Live
-hashrate/temps/power, water-loop in/out + flow, per-board stats, remote reboot,
-LAN discovery and add/edit of miners.
-
-- App source: [`android/`](android/) · build with `cd android && ./gradlew assembleDebug`
-- Site gateway for the remote path: [`gateway/`](gateway/)
-- CI builds the debug APK on every push (see the **Actions** tab).
-
----
-
-## ⬇️ Downloads (latest release)
-
-Go to the **[Releases page](../../releases/latest)** and pick the file for your platform:
-
-### WeLoveMining CRM
-The central dashboard — clients, quotes, invoices, expenses, banking, P&L reports, plus a Customer Sites view that aggregates miner stats from every linked Miner Manager.
-
-| Platform | File | Size |
-|---|---|---|
-| Windows installer | `WeLoveMining-CRM-Setup-1.0.0.exe` | 105 MB |
-| Windows portable (no install) | `WeLoveMining-CRM-Portable-1.0.0.exe` | 105 MB |
-| Android phone (sideload APK) | `WeLoveMining-CRM-Android-1.0.0.apk` | 5 MB |
-| Web bundle (host on your own server) | `WeLoveMining-CRM-Web-1.0.0.zip` | 1.4 MB |
-
-### WeLoveMining Miner Manager
-Light, customer-facing app. Installed at the mining site, it auto-discovers ASIC miners on the LAN, polls their stats, and reports back to the CRM over a secure outbound connection — no port forwarding needed.
-
-| Platform | File | Size |
-|---|---|---|
-| Windows installer | `WeLoveMining-MinerManager-Setup-1.0.0.exe` | 94 MB |
-| Windows portable | `WeLoveMining-MinerManager-Portable-1.0.0.exe` | 94 MB |
-| Android phone (LAN viewer) | `WeLoveMining-MinerManager-Android-1.0.0.apk` | 5 MB |
-
----
-
-## 🚀 Quick start
-
-### For the operator (you)
-
-1. Download **WeLoveMining-CRM-Setup-1.0.0.exe** → install on the PC where the CRM will live.
-2. Run it. The CRM opens at `http://localhost:4500`.
-3. (Optional) **Settings → Remote Access → Start Tunnel** to get a public URL your phone can hit from anywhere.
-4. (Recommended) **Settings → Security** → set a password.
-5. To add a customer site:
-   - **Customer Sites → New Customer Site** → enter a name → click Generate Agent Key
-   - Hand the customer their **Agent Key** + your **CRM URL**
-
-### For a mining site (customer)
-
-1. Download **WeLoveMining-MinerManager-Setup-1.0.0.exe** → install on a Windows PC on the same Wi-Fi/LAN as the ASIC miners.
-2. Launch → on the **Setup** screen, paste:
-   - **Agent Key**: provided by your WeLoveMining supplier
-   - **CRM URL**: provided by your WeLoveMining supplier
-   - **Subnet**: e.g. `192.168.1.0/24`
-3. Click **Save & Connect**. The app scans the LAN and starts reporting back.
-4. (Optional) Install the Android app for an on-the-go view of your fleet.
-
----
-
-## ⛏️ Supported miners
-
-### Antminer (HTTP & cgminer / bmminer)
-S19, S19j, S19 Pro, S19j Pro, S19 XP, S19k Pro, S21, S21+, S21 Pro, S21 XP, T21
-**Hydro / water-cooled** variants: S19 Hydro, S19 Pro Hydro, S19j Pro Hydro, S19 XP Hydro, S21 Hydro, S21 Pro Hyd., S21 XP Hyd., T21 Hydro
-Firmware: stock Bitmain, **Braiins OS+ / BOSer**, Vnish, LuxOS, Hiveon
-
-### Whatsminer (TCP API)
-M30S/+/++, M50/M50S, M53/M53S, M56, M60/M60S, M63S
-
-### Hydro stats automatically picked up
-Coolant inlet & outlet temperature, flow rate (L/min), pump RPM.
-
----
-
-## 🛡️ Architecture
+Monitor and manage Antminer/ASIC fleets (Braiins OS+ first-class, plus Bitmain
+stock, Avalon and VNish) across every client site — from a phone or a browser.
+Modelled on Braiins Manager: sites dial **out** to a central hub, so there's no
+port-forwarding and no per-site tunnels.
 
 ```
-Operator's phone → Cloudflare tunnel → CRM PC ↔ Customer Miner Manager → ASIC miners on customer LAN
+miners ◀─LAN─ Site Agent ─outbound─▶ WLM Hub ─▶ Web dashboard + Android app
 ```
 
-- CRM ↔ Miner Manager uses an outbound socket.io connection (customer doesn't need port-forwarding).
-- Authentication: per-customer Agent Keys (UUIDs); CRM password is operator-side.
-- All communication TLS-protected when using the Cloudflare tunnel.
+## Components
 
----
+| Part | Runs on | Download (latest) |
+|---|---|---|
+| **WLM Hub** | one always-on PC (yours) | [`hub-latest`](../../releases/tag/hub-latest) → `WLM-Hub-Setup.exe` |
+| **WLM Site Agent** | a PC at each client site | [`gateway-latest`](../../releases/tag/gateway-latest) → `WLM-SiteAgent-Setup.exe` |
+| **WLM ASIC Manager** (Android) | your / clients' phones | [`app-latest`](../../releases/tag/app-latest) → `WLM-ASIC-Manager-latest.apk` |
 
-## 📦 Versions
+## Setup (once)
 
-Each binary embeds version `1.0.0`. Patch releases ship as new files on the [Releases page](../../releases). The Android APKs auto-rebuild on every commit to the source repos via GitHub Actions — these mirror the published binaries.
+1. **Hub** — run `WLM-Hub-Setup.exe`. Copy the **operator token**; for its public
+   address paste a Cloudflare connection code (→ e.g. `manage.welovemining.co.za`,
+   `localhost:8900`) or leave blank for a free address.
+2. **Each site** — run `WLM-SiteAgent-Setup.exe`, type a site name + the Hub
+   address. The site appears in the Hub automatically.
+3. **App** — Settings → My Sites → add the Hub address + operator token. You see
+   every site; a client sees their own.
 
-## 🧑‍💻 Source code
+## Source
 
-Source repositories are **private**. Contact WeLoveMining for access.
+- `hub/` — central relay + web dashboard (Node, zero-dep)
+- `gateway/` — Site Agent (discovers miners, reports to the Hub)
+- `android/` — the Android app (Kotlin + Jetpack Compose)
 
-- CRM: `welovemining-crm`
-- Miner Manager: `welovemining-client`
+Installers are built by GitHub Actions and published to the releases above.
 
----
+## Support
 
-## 📞 Support
-
-For setup help, custom builds, or new miner-model integrations:
 **enrico@welovemining.co.za** · [welovemining.co.za](https://welovemining.co.za)
 
 © 2026 WeLoveMining (Pty) Ltd. All rights reserved.
