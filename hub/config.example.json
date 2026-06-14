@@ -1,0 +1,9 @@
+{
+  "listenPort": 8900,
+  "operatorToken": "set-a-long-random-operator-token",
+  "offlineAfterSec": 60,
+  "tunnel": true,
+  "tunnelToken": "",
+  "publicUrl": "",
+  "siteKeys": {}
+}

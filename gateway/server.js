@@ -527,14 +527,58 @@ const server = http.createServer(async (req, res) => {
   send(res, 404, { error: "not found" });
 });
 
+// ===========================================================================
+//  Hub mode — push the fleet OUT to the central WLM Hub (no inbound/tunnel)
+// ===========================================================================
+
+const HUB_URL = (config.hubUrl || "").replace(/\/$/, "");
+const SITE_KEY = config.siteKey || "";
+const HUB_MODE = HUB_URL !== "" && SITE_KEY !== "";
+
+function fleetSnapshot() {
+  return minerList().map((m) => ({
+    id: m.id, name: m.name, host: m.host, model: m.model || "", firmware: m.firmware,
+    cooling: m.cooling || "air", group: m.group || "Default", stats: cache.get(m.id) || offline(m, "not polled yet"),
+  }));
+}
+
+async function pushToHub() {
+  try {
+    const r = await fetch(`${HUB_URL}/api/agent/report`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ siteKey: SITE_KEY, siteName: config.siteName || "Site", miners: fleetSnapshot() }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const body = await r.json().catch(() => ({}));
+    for (const c of body.commands || []) {
+      const miner = minerList().find((m) => m.id === c.minerId);
+      if (!miner) continue;
+      if (c.type === "reboot") await reboot(miner).catch(() => {});
+      else if (c.type === "locate") await locate(miner).catch(() => {});
+    }
+  } catch (e) {
+    console.error("Hub report failed:", e.message);
+  }
+}
+
 (async () => {
   const port = config.listenPort || 8787;
-  startTunnel(port);
+  if (HUB_MODE) {
+    console.log(`Hub mode: reporting to ${HUB_URL} as "${config.siteName || "Site"}"`);
+  } else {
+    startTunnel(port); // standalone mode keeps its own public route
+  }
   await refreshDiscovery();
   if (DISCOVER) setInterval(refreshDiscovery, DISCOVERY_MS);
   await pollAll();
   setInterval(pollAll, POLL_MS);
+  if (HUB_MODE) {
+    const reportMs = (config.reportIntervalSec || 10) * 1000;
+    await pushToHub();
+    setInterval(pushToHub, reportMs);
+  }
+  // Always serve the local dashboard (on-site browser window) on loopback.
   server.listen(port, () => {
-    console.log(`WLM gateway on :${port} — ${minerList().length} miner(s), polling every ${POLL_MS / 1000}s`);
+    console.log(`WLM Site Manager on :${port} — ${minerList().length} miner(s)${HUB_MODE ? " (hub mode)" : ""}`);
   });
 })();

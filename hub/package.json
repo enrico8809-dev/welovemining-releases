@@ -1,0 +1,10 @@
+{
+  "name": "wlm-hub",
+  "version": "1.0.0",
+  "description": "WLM Hub — central relay that aggregates every site agent for the web dashboard and the WLM ASIC Manager app.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" },
+  "license": "UNLICENSED"
+}

@@ -85,7 +85,9 @@ class MinerRepository(
                         list.map { mw ->
                             mw.copy(miner = mw.miner.copy(
                                 id = "${site.id}$SITE_SEP${mw.miner.id}",
-                                groupName = site.name,
+                                // Keep the source-provided group (a Hub already
+                                // groups by client site); fall back to this site's name.
+                                groupName = mw.miner.groupName.ifBlank { site.name },
                             ))
                         }
                     },
