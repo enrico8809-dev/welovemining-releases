@@ -1,7 +1,7 @@
 <service>
-  <id>WLMGateway</id>
-  <name>WLM Site Agent</name>
-  <description>WeLoveMining Site Agent — discovers the ASIC miners on this site and reports them to the WLM Hub.</description>
+  <id>WLMHub</id>
+  <name>WLM Hub</name>
+  <description>WeLoveMining Hub — central relay that aggregates all site agents for the web dashboard and the WLM app.</description>
   <executable>%BASE%\node.exe</executable>
   <arguments>"%BASE%\server.js"</arguments>
   <workingdirectory>%BASE%</workingdirectory>

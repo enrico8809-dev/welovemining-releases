@@ -1,9 +1,8 @@
-name: Site Manager Installer
+name: Site Agent Installer
 
-# Builds the WLM Site Manager Windows installer and publishes it to the
-# `gateway-latest` GitHub Release. The installer bundles Node.js, cloudflared
-# and the WinSW service wrapper; the client only types a site name (and an
-# optional connection code for a permanent address).
+# Builds the WLM Site Agent Windows installer and publishes it to the
+# `gateway-latest` release. The agent dials out to the Hub (no Cloudflare),
+# so it bundles only Node.js + the WinSW service wrapper.
 
 on:
   push:
@@ -18,7 +17,7 @@ permissions:
 
 jobs:
   build:
-    name: Build Setup.exe
+    name: Build Site Agent Setup.exe
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -30,8 +29,6 @@ jobs:
           $ErrorActionPreference = "Stop"
           $payload = "gateway/installer/payload"
           New-Item -ItemType Directory -Force -Path $payload | Out-Null
-
-          # Site Manager app files
           Copy-Item gateway/server.js          $payload/
           Copy-Item gateway/package.json       $payload/
           Copy-Item gateway/config.example.json $payload/
@@ -40,18 +37,12 @@ jobs:
           Copy-Item "gateway/installer/WLM Site Manager.cmd"  $payload/
           Copy-Item gateway/installer/wlm.ico  $payload/
 
-          # Node.js runtime (bundled so no prerequisite install is needed)
           $node = "v20.18.1"
           Invoke-WebRequest "https://nodejs.org/dist/$node/node-$node-win-x64.zip" -OutFile node.zip
           Expand-Archive node.zip -DestinationPath nodetmp -Force
           Copy-Item "nodetmp/node-$node-win-x64/node.exe" "$payload/node.exe"
 
-          # WinSW service wrapper (renamed to match the service XML)
           Invoke-WebRequest "https://github.com/winsw/winsw/releases/download/v2.12.0/WinSW-x64.exe" -OutFile "$payload/wlm-gateway-service.exe"
-
-          # cloudflared
-          Invoke-WebRequest "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -OutFile "$payload/cloudflared.exe"
-
           Get-ChildItem $payload | Format-Table Name,Length
 
       - name: Install Inno Setup
@@ -64,40 +55,40 @@ jobs:
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" gateway/installer/wlm-gateway.iss
           Get-ChildItem gateway/installer/Output
 
-      - name: Package source zip (for non-Windows sites)
+      - name: Package source zip
         shell: pwsh
-        run: |
-          Compress-Archive -Path gateway/server.js,gateway/package.json,gateway/config.example.json,gateway/README.md -DestinationPath gateway/installer/Output/WLM-SiteManager-source.zip -Force
+        run: Compress-Archive -Path gateway/server.js,gateway/package.json,gateway/config.example.json,gateway/README.md -DestinationPath gateway/installer/Output/WLM-SiteAgent-source.zip -Force
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: wlm-sitemanager-setup
-          path: gateway/installer/Output/WLM-SiteManager-Setup.exe
+          name: wlm-siteagent-setup
+          path: gateway/installer/Output/WLM-SiteAgent-Setup.exe
           if-no-files-found: error
 
       - name: Publish Release
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          name: WLM Site Manager (Windows)
+          name: WLM Site Agent (Windows)
           tag_name: gateway-latest
           target_commitish: ${{ github.sha }}
           body: |
-            **WLM Site Manager** — install at each client mining site.
+            **WLM Site Agent** — install at each client mining site.
 
-            Run `WLM-SiteManager-Setup.exe` on an always-on Windows PC on the
-            miners' LAN. It auto-discovers the miners, shows a live dashboard
-            in its own desktop window, and links the site to the WLM ASIC
-            Manager phone app.
+            Run `WLM-SiteAgent-Setup.exe` on an always-on Windows PC on the
+            miners' LAN. It auto-discovers the miners and reports them to your
+            **WLM Hub** — dialing out only, so there's nothing to open on the
+            firewall and no Cloudflare to configure at the site. A local
+            dashboard is available at http://localhost:8787.
 
-            During install the client only types a **site name**. Paste a
-            **connection code** (provided by WeLoveMining) for a permanent
-            address, or leave it blank for a free auto-generated one (shown on
-            the dashboard). Copy the **app access token** into the phone app.
+            During install: type a **site name** and your **Hub address**
+            (e.g. https://manage.welovemining.co.za). The site then appears in
+            the Hub dashboard and the app automatically.
 
-            **Other OS:** `WLM-SiteManager-source.zip` — run `node server.js`.
+            **Other OS:** `WLM-SiteAgent-source.zip` — set `hubUrl`/`siteKey` in
+            `config.json` and run `node server.js`.
           files: |
-            gateway/installer/Output/WLM-SiteManager-Setup.exe
-            gateway/installer/Output/WLM-SiteManager-source.zip
+            gateway/installer/Output/WLM-SiteAgent-Setup.exe
+            gateway/installer/Output/WLM-SiteAgent-source.zip
           fail_on_unmatched_files: true
