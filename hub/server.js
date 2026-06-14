@@ -29,7 +29,7 @@ try {
 const PORT = config.listenPort || 8900;
 const OPERATOR_TOKEN = config.operatorToken || "";
 const SITE_KEYS = config.siteKeys || {};          // { "<key>": "Default name" }
-const REQUIRE_KNOWN = Object.keys(SITE_KEYS).length > 0; // allowlist if any keys listed
+const ACCEPT_ANY = config.acceptAnySite === true; // off by default — unknown keys go to Pending
 const OFFLINE_AFTER_MS = (config.offlineAfterSec || 60) * 1000;
 const SEP = "::";
 
@@ -37,6 +37,10 @@ const SEP = "::";
 const sites = new Map();
 // siteKey -> [ {type, minerId} ]
 const commands = new Map();
+// approved site keys (config keys are pre-approved); persisted across restarts
+const approved = new Set(Object.keys(SITE_KEYS));
+// unknown keys awaiting operator approval: key -> { key, name, firstSeen, lastSeen }
+const pending = new Map();
 let publicUrl = null;
 
 // --- helpers --------------------------------------------------------------
@@ -82,13 +86,16 @@ function aggregateFleet() {
 
 function persist() {
   try {
-    writeFileSync(join(here, "state.json"), JSON.stringify([...sites.values()]));
+    writeFileSync(join(here, "state.json"), JSON.stringify({ sites: [...sites.values()], approved: [...approved] }));
   } catch { /* best effort */ }
 }
 function restore() {
   try {
-    for (const s of JSON.parse(readFileSync(join(here, "state.json"), "utf8"))) sites.set(s.key, s);
-    console.log(`Restored ${sites.size} site(s) from state.json`);
+    const raw = JSON.parse(readFileSync(join(here, "state.json"), "utf8"));
+    const list = Array.isArray(raw) ? raw : (raw.sites || []);   // tolerate old format
+    for (const s of list) sites.set(s.key, s);
+    for (const k of (raw.approved || list.map((s) => s.key))) approved.add(k);
+    console.log(`Restored ${sites.size} site(s), ${approved.size} approved key(s)`);
   } catch { /* none */ }
 }
 
@@ -122,8 +129,13 @@ const server = http.createServer(async (req, res) => {
     const body = await readBody(req);
     const key = body?.siteKey;
     if (!key) return send(res, 400, { error: "siteKey required" });
-    if (REQUIRE_KNOWN && !(key in SITE_KEYS)) return send(res, 403, { error: "unknown site key" });
     const name = body.siteName || SITE_KEYS[key] || key;
+    // Unknown key → hold for operator approval, don't admit into the fleet.
+    if (!ACCEPT_ANY && !approved.has(key)) {
+      const prev = pending.get(key);
+      pending.set(key, { key, name, firstSeen: prev?.firstSeen || Date.now(), lastSeen: Date.now() });
+      return send(res, 202, { pending: true });
+    }
     sites.set(key, { key, name, lastReportMs: Date.now(), miners: Array.isArray(body.miners) ? body.miners : [] });
     persist();
     const queued = commands.get(key) || [];
@@ -147,6 +159,18 @@ const server = http.createServer(async (req, res) => {
         lastSeen: s.lastReportMs,
       })),
     });
+  }
+
+  // ----- Pending site approvals -----
+  if (req.method === "GET" && p === "/api/v1/pending") {
+    return send(res, 200, { pending: [...pending.values()] });
+  }
+  const appr = p.match(/^\/api\/v1\/pending\/(.+)\/(approve|reject)$/);
+  if (req.method === "POST" && appr) {
+    const key = decodeURIComponent(appr[1]);
+    if (appr[2] === "approve") { approved.add(key); persist(); }
+    pending.delete(key);
+    return send(res, 200, { ok: true });
   }
 
   // Command routing: /api/v1/miners/<siteKey::minerId>/reboot|locate
@@ -178,12 +202,19 @@ table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid var(--li
 .mono{font-family:ui-monospace,Consolas,monospace}button{background:var(--orange);color:#1a1206;border:0;border-radius:7px;padding:4px 10px;font-weight:600;cursor:pointer}</style></head><body>
 <h1>⛏ WLM Hub</h1><small style="color:var(--mut)">All client sites · <span id="meta">…</span></small>
 <div class="tok">Operator token: <input id="tok" type="password" placeholder="paste token"> <button onclick="save()">Save</button></div>
+<div id="pending"></div>
 <div id="sites"></div>
 <script>
 let T=localStorage.getItem('wlm_tok')||'';document.getElementById('tok').value=T;
 function save(){T=document.getElementById('tok').value.trim();localStorage.setItem('wlm_tok',T);refresh();}
 function hdr(){return T?{authorization:'Bearer '+T}:{}}
+async function approve(key,act){await fetch('/api/v1/pending/'+encodeURIComponent(key)+'/'+act,{method:'POST',headers:hdr()});refresh();}
+async function pend(){try{const r=await fetch('/api/v1/pending',{headers:hdr()});if(!r.ok)return;const d=await r.json();const ps=d.pending||[];
+ document.getElementById('pending').innerHTML=ps.length?('<div class="site" style="border-color:#fbbf24"><h2 style="color:#fbbf24">Pending approval ('+ps.length+')</h2>'+
+ ps.map(p=>'<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0"><span>'+p.name+' <small style="color:#8c97a8" class=mono>'+p.key.slice(0,8)+'…</small></span><span><button onclick="approve(\\''+p.key+'\\',\\'approve\\')">Approve</button> <button style="background:#f87171" onclick="approve(\\''+p.key+'\\',\\'reject\\')">Reject</button></span></div>').join('')+'</div>'):'';
+ }catch(e){}}
 async function refresh(){
+ pend();
  try{const r=await fetch('/api/v1/fleet',{headers:hdr()});if(r.status==401){document.getElementById('meta').textContent='enter operator token';return;}
  const f=await r.json();const ms=f.miners||[];const by={};ms.forEach(m=>{(by[m.site]=by[m.site]||[]).push(m)});
  document.getElementById('meta').textContent=Object.keys(by).length+' sites · '+ms.length+' miners · '+new Date().toLocaleTimeString();
@@ -206,4 +237,4 @@ refresh();setInterval(refresh,10000);
 
 restore();
 if (config.tunnel !== false) startTunnel();
-server.listen(PORT, () => console.log(`WLM Hub on :${PORT} — operator token ${OPERATOR_TOKEN ? "set" : "OPEN (set one!)"}, ${REQUIRE_KNOWN ? Object.keys(SITE_KEYS).length + " known keys" : "accepting any site key"}`));
+server.listen(PORT, () => console.log(`WLM Hub on :${PORT} — operator token ${OPERATOR_TOKEN ? "set" : "OPEN (set one!)"}, ${ACCEPT_ANY ? "accepting any site key" : approved.size + " approved key(s), unknown → pending"}`));

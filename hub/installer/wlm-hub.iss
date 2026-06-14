@@ -96,6 +96,7 @@ begin
         '  "tunnel": true,' + #13#10 +
         '  "tunnelToken": "' + JsonEscape(CfToken) + '",' + #13#10 +
         '  "publicUrl": "",' + #13#10 +
+        '  "acceptAnySite": false,' + #13#10 +
         '  "siteKeys": {}' + #13#10 +
         '}' + #13#10;
       SaveStringToFile(ConfigPath, Json, False);
