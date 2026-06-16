@@ -118,6 +118,8 @@ fun WlmApp(
             composable(Routes.MINER_DETAIL) { entry ->
                 val minerId = entry.arguments?.getString("minerId").orEmpty()
                 val isConfigured = fleetVm.configuredMinerFor(minerId) != null
+                // A site-owned miner id is "<siteId>~<...>"; hide controls if that site is view-only.
+                val ownerSite = appSettings.sites.firstOrNull { minerId.startsWith("${it.id}~") }
                 MinerDetailScreen(
                     item = fleetState.items.firstOrNull { it.miner.id == minerId },
                     onBack = { navController.popBackStack() },
@@ -126,6 +128,7 @@ fun WlmApp(
                     onEdit = if (isConfigured) {
                         { navController.navigate(Routes.minerEdit(minerId)) }
                     } else null,
+                    controllable = ownerSite?.readOnly != true,
                 )
             }
             composable(Routes.MINER_NEW) {

@@ -54,15 +54,17 @@ Type: filesandordirs; Name: "{app}"
 var
   SitePage: TInputQueryWizardPage;
   AccessToken: String;
+  ViewToken: String;
 
-function GenToken(): String;
+function GenToken(const Salt: String): String;
 begin
-  Result := GetMD5OfString(GetDateTimeString('yyyy-mm-dd hh:nn:ss.zzz', '-', ':'));
+  Result := GetMD5OfString(Salt + GetDateTimeString('yyyy-mm-dd hh:nn:ss.zzz', '-', ':'));
 end;
 
 procedure InitializeWizard();
 begin
-  AccessToken := GenToken();
+  AccessToken := GenToken('full');
+  ViewToken := GenToken('view');
   SitePage := CreateInputQueryPage(wpWelcome,
     'Site setup', 'Name this site',
     'The gateway finds the miners on this network automatically and creates a free public address so the app can reach it (shown on the dashboard after install).' + #13#10 + #13#10 +
@@ -107,6 +109,7 @@ begin
         '  "tunnelToken": "' + JsonEscape(CfToken) + '",' + #13#10 +
         '  "publicUrl": "",' + #13#10 +
         '  "token": "' + Token + '",' + #13#10 +
+        '  "viewToken": "' + ViewToken + '",' + #13#10 +
         '  "subnets": [],' + #13#10 +
         '  "miners": []' + #13#10 +
         '}' + #13#10;

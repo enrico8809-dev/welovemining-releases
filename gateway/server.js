@@ -401,8 +401,10 @@ async function refresh(){
     const t=await (await fetch('/api/v1/connect')).json();
     let box='';
     if(t.url||t.token){box='<div class="box"><b>Connect the app</b> (Settings → My Sites → Add):<br>'+
-      (t.url?'Address: <a href="'+t.url+'">'+t.url+'</a><br>':'Address: set up your tunnel to this PC, port 8787<br>')+
-      (t.token?('Token: <span class="mono">'+t.token+'</span>'):'Open this page on THIS PC to see the token')+'</div>';}
+      (t.url?'Address: <a href="'+t.url+'">'+t.url+'</a><br>':'Address: point your tunnel to this PC, port 8787<br>')+
+      (t.token?('<b>Full</b> token (you — view + control): <span class="mono">'+t.token+'</span><br>'):'')+
+      (t.viewToken?('<b>View-only</b> token (give clients): <span class="mono">'+t.viewToken+'</span>'):'')+
+      (!t.token&&!t.viewToken?'Open this page on THIS PC to see the tokens':'')+'</div>';}
     document.getElementById('pub').innerHTML=box;
     const ms=f.miners||[];const on=ms.filter(m=>m.stats&&(m.stats.state=='ONLINE'||m.stats.state=='WARNING'));
     const hash=on.reduce((a,m)=>a+m.stats.hashrateThs,0), pow=on.reduce((a,m)=>a+m.stats.powerW,0);
@@ -475,20 +477,33 @@ function startTunnel(port) {
 //  HTTP server
 // ===========================================================================
 
-function authed(req, url) {
-  if (!config.token) return true;
-  // The local desktop window / on-site browser is trusted: loopback requests
-  // WITHOUT Cloudflare headers are local (tunnel traffic also arrives on
-  // loopback, but always carries cf-* headers).
+const VIEW_TOKEN = config.viewToken || "";
+
+// Local desktop window / on-site browser is trusted (loopback, not via tunnel).
+function isLocalReq(req) {
   const ra = req.socket.remoteAddress || "";
-  const isLoopback = ra === "127.0.0.1" || ra === "::1" || ra === "::ffff:127.0.0.1";
+  const loopback = ra === "127.0.0.1" || ra === "::1" || ra === "::ffff:127.0.0.1";
   const viaTunnel = req.headers["cf-ray"] != null || req.headers["cf-connecting-ip"] != null;
-  if (isLoopback && !viaTunnel) return true;
+  return loopback && !viaTunnel;
+}
+function presentedToken(req, url) {
   const h = req.headers["authorization"] || "";
-  if (h === `Bearer ${config.token}`) return true;
+  if (h.startsWith("Bearer ")) return h.slice(7);
+  return (url && url.searchParams.get("token")) || "";
+}
+// Read access: full token OR view-only token (or local / open if unconfigured).
+function canRead(req, url) {
+  if (!config.token && !VIEW_TOKEN) return true;
+  if (isLocalReq(req)) return true;
   if (req.headers["cf-access-jwt-assertion"] != null) return true;
-  if (url && url.searchParams.get("token") === config.token) return true;
-  return false;
+  const t = presentedToken(req, url);
+  return t !== "" && (t === config.token || (VIEW_TOKEN && t === VIEW_TOKEN));
+}
+// Control access (reboot/locate): full token only.
+function canControl(req, url) {
+  if (!config.token) return true;
+  if (isLocalReq(req)) return true;
+  return presentedToken(req, url) === config.token;
 }
 function send(res, code, obj) {
   res.writeHead(code, { "content-type": "application/json" });
@@ -502,13 +517,15 @@ const server = http.createServer(async (req, res) => {
   // App connection details. The token is revealed ONLY to the local PC
   // (loopback, not via the tunnel) so it never leaks over the public URL.
   if (url.pathname === "/api/v1/connect") {
-    const ra = req.socket.remoteAddress || "";
-    const isLocal = (ra === "127.0.0.1" || ra === "::1" || ra === "::ffff:127.0.0.1")
-      && req.headers["cf-ray"] == null && req.headers["cf-connecting-ip"] == null;
-    return send(res, 200, { url: publicUrl, token: isLocal ? (config.token || "") : null });
+    const local = isLocalReq(req);
+    return send(res, 200, {
+      url: publicUrl,
+      token: local ? (config.token || "") : null,
+      viewToken: local ? VIEW_TOKEN : null,
+    });
   }
   if (url.pathname === "/" || url.pathname === "") { res.writeHead(200, { "content-type": "text/html; charset=utf-8" }); return res.end(statusPage()); }
-  if (!authed(req, url)) return send(res, 401, { error: "unauthorized" });
+  if (!canRead(req, url)) return send(res, 401, { error: "unauthorized" });
 
   if (req.method === "GET" && url.pathname === "/api/v1/raw") {
     const host = url.searchParams.get("host");
@@ -526,12 +543,14 @@ const server = http.createServer(async (req, res) => {
   }
   const reb = url.pathname.match(/^\/api\/v1\/miners\/([^/]+)\/reboot$/);
   if (req.method === "POST" && reb) {
+    if (!canControl(req, url)) return send(res, 403, { error: "view-only access" });
     const miner = minerList().find((m) => m.id === reb[1]);
     if (!miner) return send(res, 404, { error: "no such miner" });
     try { await reboot(miner); return send(res, 200, { ok: true }); } catch (e) { return send(res, 502, { error: e.message }); }
   }
   const loc = url.pathname.match(/^\/api\/v1\/miners\/([^/]+)\/locate$/);
   if (req.method === "POST" && loc) {
+    if (!canControl(req, url)) return send(res, 403, { error: "view-only access" });
     const miner = minerList().find((m) => m.id === loc[1]);
     if (!miner) return send(res, 404, { error: "no such miner" });
     try { await locate(miner); return send(res, 200, { ok: true }); } catch (e) { return send(res, 502, { error: e.message }); }

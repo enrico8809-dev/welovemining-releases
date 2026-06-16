@@ -19,11 +19,18 @@ it. Type a **site name** (and, optionally, a Cloudflare connection code for a
 permanent custom address). Finish.
 
 Open the dashboard (Start menu → **WLM Gateway**, or `http://localhost:8787`).
-At the top it shows the **App address** and **App token** — paste both into the
-app under **Settings → My Sites → Add site**. Done.
+At the top it shows the **App address** and two tokens:
+- **Full token** — view *and* control (reboot/locate). Keep this for yourself.
+- **View-only token** — view only; reboot/locate are rejected. Hand this to a
+  client so they can watch but not change anything.
 
-> The app operator adds every client's gateway (each has its own address +
-> token) to see all sites; a client adds just their own.
+Paste the address + a token into the app under **Settings → My Sites → Add site**
+(tick *View only* when using a view token).
+
+> **Seeing all sites / permissions:** you (operator) add every client's gateway
+> with its **full** token → you see and control everything. To let a client see
+> only certain sites, give them the **address + view-only token** for just those
+> sites. The token *is* the permission — no accounts or central server needed.
 
 ## Other OS
 

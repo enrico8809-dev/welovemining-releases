@@ -14,8 +14,11 @@ data class Site(
     val name: String,
     /** Public address of the Site Manager, e.g. https://client1.welovemining.co.za */
     val url: String,
-    /** The site's app access token (shown by the Site Manager installer). */
+    /** The site's app access token (shown by the Gateway dashboard). */
     val token: String = "",
+    /** View-only: the app hides controls (and the Gateway rejects them anyway
+     *  when given a view-only token). */
+    val readOnly: Boolean = false,
 )
 
 /** All persisted user configuration for the app. */

@@ -172,6 +172,7 @@ private fun SiteEditorDialog(site: Site, onSave: (Site) -> Unit, onDismiss: () -
     var name by remember { mutableStateOf(site.name) }
     var url by remember { mutableStateOf(site.url) }
     var token by remember { mutableStateOf(site.token) }
+    var readOnly by remember { mutableStateOf(site.readOnly) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (site.name.isBlank()) "Add site" else "Edit site") },
@@ -179,7 +180,12 @@ private fun SiteEditorDialog(site: Site, onSave: (Site) -> Unit, onDismiss: () -
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Site name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = url, onValueChange = { url = it }, label = { Text("Site address") }, placeholder = { Text("https://client1.welovemining.co.za") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = token, onValueChange = { token = it }, label = { Text("Access token") }, placeholder = { Text("From the Site Manager") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = token, onValueChange = { token = it }, label = { Text("Access token") }, placeholder = { Text("Full or view-only token") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(checked = readOnly, onCheckedChange = { readOnly = it })
+                    Spacer(Modifier.width(8.dp))
+                    Text("View only (hide reboot/controls)", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                }
             }
         },
         confirmButton = {
@@ -187,7 +193,7 @@ private fun SiteEditorDialog(site: Site, onSave: (Site) -> Unit, onDismiss: () -
                 onClick = {
                     var u = url.trim()
                     if (u.isNotBlank() && !u.startsWith("http")) u = "https://$u"
-                    onSave(site.copy(name = name.trim().ifBlank { "Site" }, url = u.trimEnd('/'), token = token.trim()))
+                    onSave(site.copy(name = name.trim().ifBlank { "Site" }, url = u.trimEnd('/'), token = token.trim(), readOnly = readOnly))
                 },
                 enabled = name.isNotBlank() && url.isNotBlank(),
                 colors = ButtonDefaults.buttonColors(containerColor = WlmOrange, contentColor = Color(0xFF1A1206)),
