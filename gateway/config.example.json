@@ -1,18 +1,13 @@
 {
   "siteName": "My Mining Site",
-  "hubUrl": "https://manage.welovemining.co.za",
-  "siteKey": "",
-  "reportIntervalSec": 10,
   "listenPort": 8787,
   "pollIntervalSec": 10,
   "discoveryIntervalSec": 300,
   "discover": true,
-  "subnets": [],
-  "miners": [],
-
-  "_standalone_only": "The fields below are used only when hubUrl/siteKey are blank (no Hub).",
-  "quickTunnel": false,
+  "quickTunnel": true,
   "tunnelToken": "",
   "publicUrl": "",
-  "token": "change-me-to-a-long-random-string"
+  "token": "change-me-to-a-long-random-string",
+  "subnets": [],
+  "miners": []
 }

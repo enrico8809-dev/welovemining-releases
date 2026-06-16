@@ -5,39 +5,36 @@
 # WLM ASIC Manager
 
 Monitor and manage Antminer/ASIC fleets (Braiins OS+ first-class, plus Bitmain
-stock, Avalon and VNish) across every client site — from a phone or a browser.
-Modelled on Braiins Manager: sites dial **out** to a central hub, so there's no
-port-forwarding and no per-site tunnels.
+stock, Avalon and VNish) from your phone — on-site or from anywhere.
 
-```
-miners ◀─LAN─ Site Agent ─outbound─▶ WLM Hub ─▶ Web dashboard + Android app
-```
+**Two pieces, nothing else:**
 
-## Components
-
-| Part | Runs on | Download (latest) |
+| Part | Runs on | Download |
 |---|---|---|
-| **WLM Hub** | one always-on PC (yours) | [`hub-latest`](../../releases/tag/hub-latest) → `WLM-Hub-Setup.exe` |
-| **WLM Site Agent** | a PC at each client site | [`gateway-latest`](../../releases/tag/gateway-latest) → `WLM-SiteAgent-Setup.exe` |
-| **WLM ASIC Manager** (Android) | your / clients' phones | [`app-latest`](../../releases/tag/app-latest) → `WLM-ASIC-Manager-latest.apk` |
+| **WLM Gateway** | a PC at each mining site | [`gateway-latest`](../../releases/tag/gateway-latest) → `WLM-Gateway-Setup.exe` |
+| **WLM ASIC Manager** (app) | your / clients' phones | [`app-latest`](../../releases/tag/app-latest) → `WLM-ASIC-Manager-latest.apk` |
 
-## Setup (once)
+```
+miners ◀─LAN─ WLM Gateway ─tunnel─▶ App
+```
 
-1. **Hub** — run `WLM-Hub-Setup.exe`. Copy the **operator token**; for its public
-   address paste a Cloudflare connection code (→ e.g. `manage.welovemining.co.za`,
-   `localhost:8900`) or leave blank for a free address.
-2. **Each site** — run `WLM-SiteAgent-Setup.exe`, type a site name + the Hub
-   address. The site appears in the Hub automatically.
-3. **App** — Settings → My Sites → add the Hub address + operator token. You see
-   every site; a client sees their own.
+## Setup
+
+1. **Each site:** run `WLM-Gateway-Setup.exe`, type a site name, finish. Open its
+   dashboard (`http://localhost:8787`) — it shows the **App address + token**.
+2. **App:** Settings → **My Sites → Add site** → paste that address + token.
+   - A client adds their own site; you add every client's gateway to see them all.
+
+That's the whole thing — no hub, no server, no port-forwarding (the Gateway
+makes its own tunnel; paste a Cloudflare connection code during install if you
+want a permanent custom domain).
 
 ## Source
 
-- `hub/` — central relay + web dashboard (Node, zero-dep)
-- `gateway/` — Site Agent (discovers miners, reports to the Hub)
-- `android/` — the Android app (Kotlin + Jetpack Compose)
+- `gateway/` — the Windows Gateway (Node, zero-dep): discovery, dashboard, API, tunnel
+- `android/` — the app (Kotlin + Jetpack Compose)
 
-Installers are built by GitHub Actions and published to the releases above.
+Installers/APK are built by GitHub Actions and published to the releases above.
 
 ## Support
 

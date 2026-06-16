@@ -398,8 +398,12 @@ button{background:var(--orange);color:#1a1206;border:0;border-radius:8px;padding
 async function refresh(){
   try{
     const f=await (await fetch('/api/v1/fleet')).json();
-    const t=await (await fetch('/api/v1/tunnel')).json();
-    document.getElementById('pub').innerHTML = t.url?'<div class="box"><b>App address:</b> <a href="'+t.url+'">'+t.url+'</a></div>':'';
+    const t=await (await fetch('/api/v1/connect')).json();
+    let box='';
+    if(t.url||t.token){box='<div class="box"><b>Connect the app</b> (Settings → My Sites → Add):<br>'+
+      (t.url?'Address: <a href="'+t.url+'">'+t.url+'</a><br>':'Address: set up your tunnel to this PC, port 8787<br>')+
+      (t.token?('Token: <span class="mono">'+t.token+'</span>'):'Open this page on THIS PC to see the token')+'</div>';}
+    document.getElementById('pub').innerHTML=box;
     const ms=f.miners||[];const on=ms.filter(m=>m.stats&&(m.stats.state=='ONLINE'||m.stats.state=='WARNING'));
     const hash=on.reduce((a,m)=>a+m.stats.hashrateThs,0), pow=on.reduce((a,m)=>a+m.stats.powerW,0);
     const hot=Math.max(0,...on.map(m=>m.stats.maxTempC));
@@ -495,6 +499,14 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost");
   if (url.pathname === "/healthz") return send(res, 200, { ok: true, miners: minerList().length, discovered: discovered.length });
   if (url.pathname === "/api/v1/tunnel") return send(res, 200, { url: publicUrl, quickTunnel: QUICK_TUNNEL });
+  // App connection details. The token is revealed ONLY to the local PC
+  // (loopback, not via the tunnel) so it never leaks over the public URL.
+  if (url.pathname === "/api/v1/connect") {
+    const ra = req.socket.remoteAddress || "";
+    const isLocal = (ra === "127.0.0.1" || ra === "::1" || ra === "::ffff:127.0.0.1")
+      && req.headers["cf-ray"] == null && req.headers["cf-connecting-ip"] == null;
+    return send(res, 200, { url: publicUrl, token: isLocal ? (config.token || "") : null });
+  }
   if (url.pathname === "/" || url.pathname === "") { res.writeHead(200, { "content-type": "text/html; charset=utf-8" }); return res.end(statusPage()); }
   if (!authed(req, url)) return send(res, 401, { error: "unauthorized" });
 
