@@ -71,7 +71,7 @@ export default function AccountScreen() {
         <View style={[styles.card, styles.infoCard]}>
           <View style={styles.cardHeader}>
             <Info color={C.mute} size={18} />
-            <Text style={[styles.cardTitle, { color: C.mute }]}>Mr Weeders</Text>
+            <Text style={[styles.cardTitle, { color: C.mute }]}>Mr Dweedery</Text>
           </View>
           <Text style={styles.disclaimer}>
             Cannabis delivery for adults (18+) across South Africa. Please consume responsibly and

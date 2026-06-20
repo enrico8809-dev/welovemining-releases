@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { CartLine, Order } from "./types";
 
-const KEY = "mrweeders:state:v1";
+const KEY = "mrdweedery:state:v1";
 
 export interface PersistedState {
   ageVerified: boolean;

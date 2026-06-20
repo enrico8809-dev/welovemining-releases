@@ -1,11 +1,11 @@
-name: Mr Weeders — Android APK (EAS Build)
+name: Mr Dweedery — Android APK (EAS Build)
 
 on:
   push:
     branches: [main]
     paths:
-      - "mr-weeders/**"
-      - ".github/workflows/mr-weeders-build.yml"
+      - "mr-dweedery/**"
+      - ".github/workflows/mr-dweedery-build.yml"
   workflow_dispatch:
     inputs:
       profile:
@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: mr-weeders
+        working-directory: mr-dweedery
     steps:
       - uses: actions/checkout@v4
 

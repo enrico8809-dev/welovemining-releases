@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Mr Dweedery — UI Preview</title>
+<style>
+  :root{
+    --green:#228B40; --greenDark:#18602E; --greenSoft:#E3F1E7;
+    --bg:#F2F4F3; --panel:#FFFFFF; --panel2:#EAEDEC; --line:#D6DAD8;
+    --text:#1E2522; --mute:#6B7470; --onGreen:#FFFFFF; --amber:#E0A100; --red:#C2412F;
+  }
+  *{box-sizing:border-box;-webkit-font-smoothing:antialiased}
+  body{margin:0;background:#cfd6d2;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--text)}
+  .page{max-width:1320px;margin:0 auto;padding:28px 20px 60px}
+  .head{text-align:center;margin-bottom:8px}
+  .head h1{margin:0;font-size:30px;font-weight:900;color:#16331f}
+  .head p{margin:6px 0 0;color:#3c4a42;font-size:15px}
+  .legend{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin:18px 0 28px}
+  .legend span{display:inline-flex;align-items:center;gap:7px;background:#fff;border:1px solid var(--line);border-radius:20px;padding:6px 12px;font-size:12px;font-weight:600;color:#3c4a42}
+  .sw{width:13px;height:13px;border-radius:4px;display:inline-block}
+  .grid{display:flex;gap:26px;flex-wrap:wrap;justify-content:center;align-items:flex-start}
+  .phone{width:300px;background:var(--bg);border-radius:34px;border:10px solid #11150f;box-shadow:0 18px 40px rgba(0,0,0,.28);overflow:hidden;position:relative}
+  .notch{height:26px;background:#11150f;border-bottom-left-radius:14px;border-bottom-right-radius:14px;width:140px;margin:0 auto;position:relative;z-index:5}
+  .screen{height:600px;overflow-y:auto;position:relative}
+  .screen::-webkit-scrollbar{width:0}
+  .caption{text-align:center;font-size:13px;font-weight:700;color:#22392b;margin-top:12px}
+  .caption small{display:block;font-weight:500;color:#48584f;margin-top:3px;font-size:11.5px}
+
+  /* generic */
+  .pad{padding:14px 16px}
+  .row{display:flex;align-items:center}
+  .between{justify-content:space-between}
+  .gap6{gap:6px}.gap8{gap:8px}.gap10{gap:10px}.gap12{gap:12px}
+  .muted{color:var(--mute)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px}
+  .bold{font-weight:800}
+  .green{color:var(--green)}
+  .pill{padding:5px 11px;border-radius:20px;font-size:12px;font-weight:700;border:1px solid var(--line);background:#fff;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+  .pill.active{background:var(--greenSoft);border-color:var(--green);color:var(--green)}
+  .btn{background:var(--green);color:#fff;border:none;border-radius:14px;padding:15px;width:100%;font-size:15px;font-weight:800;display:flex;justify-content:space-between;align-items:center;cursor:default}
+  .btn.center{justify-content:center}
+  .btn.outline{background:transparent;border:1.5px solid var(--green);color:var(--green)}
+  .stepper{display:inline-flex;align-items:center;background:var(--greenSoft);border-radius:18px;padding:2px 4px;gap:6px}
+  .stepper b{min-width:16px;text-align:center}
+  .stepper i{color:var(--green);font-style:normal;font-size:18px;font-weight:800;width:24px;text-align:center}
+  .addbtn{width:34px;height:34px;border-radius:18px;background:var(--green);color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700}
+  .tag{background:var(--panel2);color:var(--mute);font-size:11px;font-weight:700;border-radius:6px;padding:2px 7px}
+  .tag.pop{background:var(--greenSoft);color:var(--green)}
+
+  /* discover */
+  .loc{font-size:12px;color:var(--mute);display:flex;align-items:center;gap:6px}
+  .title{font-size:26px;font-weight:900;margin:6px 0 10px}
+  .search{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--line);border-radius:12px;height:44px;padding:0 12px;color:var(--mute);font-size:14px}
+  .chips{display:flex;gap:8px;overflow-x:auto;padding:12px 0}
+  .chips::-webkit-scrollbar{height:0}
+  .shop{background:#fff;border:1px solid var(--line);border-radius:16px;overflow:hidden;margin-bottom:14px}
+  .banner{height:96px;background:var(--greenSoft);display:flex;align-items:center;justify-content:center;font-size:50px;position:relative}
+  .badge{position:absolute;top:9px;left:9px;background:var(--green);color:#fff;font-size:9px;font-weight:800;letter-spacing:.5px;padding:4px 7px;border-radius:6px}
+  .closed{position:absolute;inset:0;background:rgba(30,37,34,.45);color:#fff;font-weight:800;letter-spacing:1px;display:flex;align-items:center;justify-content:center}
+  .shopb{padding:13px}
+  .shopn{font-size:15px;font-weight:800}
+  .stars{color:var(--amber);font-size:12px;font-weight:700}.stars b{color:var(--text)}.stars span{color:var(--mute);font-weight:500}
+  .meta{font-size:12px;color:var(--text);font-weight:600}.meta .d{color:var(--mute);font-weight:400;margin:0 5px}
+
+  /* product rows */
+  .prow{display:flex;gap:12px;padding:13px 0;border-bottom:1px solid var(--line)}
+  .thumb{width:60px;height:60px;border-radius:12px;background:var(--greenSoft);display:flex;align-items:center;justify-content:center;font-size:28px;flex:none}
+  .pinfo{flex:1}
+  .pname{font-weight:700;font-size:14px}
+  .pdesc{color:var(--mute);font-size:12.5px;line-height:1.4;margin:2px 0}
+  .pprice{font-weight:800;font-size:14px;margin-top:3px}
+  .sect{font-size:17px;font-weight:800;margin:14px 0 2px}
+
+  /* summary rows */
+  .sr{display:flex;justify-content:space-between;padding:5px 0;font-size:13.5px}
+  .sr .l{color:var(--mute)}.sr .v{font-weight:600}
+  .sr.total{font-size:16px}.sr.total .l,.sr.total .v{color:var(--text);font-weight:800}
+  .divider{height:1px;background:var(--line);margin:8px 0}
+  .infostrip{display:flex;background:#fff;border:1px solid var(--line);border-radius:12px;padding:11px 0;margin-top:12px}
+  .infostrip>div{flex:1;text-align:center}
+  .il{font-size:10.5px;color:var(--mute);font-weight:600}.iv{font-size:12.5px;font-weight:800;margin-top:2px}
+
+  /* payment rows */
+  .pay{display:flex;align-items:center;gap:11px;padding:11px 0}
+  .pay+.pay{border-top:1px solid var(--line)}
+  .payi{font-size:22px}
+  .radio{width:23px;height:23px;border-radius:12px;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px}
+  .radio.on{background:var(--green);border-color:var(--green)}
+  .sb{background:var(--panel2);color:var(--mute);font-size:8.5px;font-weight:800;border-radius:5px;padding:1px 5px}
+
+  /* tracking */
+  .tbanner{background:var(--greenSoft);border-radius:16px;padding:20px;text-align:center}
+  .tbanner .e{font-size:40px}
+  .tbanner h2{margin:6px 0 2px;font-size:20px;font-weight:900}
+  .tbanner p{margin:0;font-size:12px;color:var(--mute)}
+  .step{display:flex;gap:12px}
+  .tl{width:23px;display:flex;flex-direction:column;align-items:center}
+  .bullet{width:22px;height:22px;border-radius:11px;border:2px solid var(--line);background:#fff;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px}
+  .bullet.done{background:var(--green);border-color:var(--green)}
+  .conn{width:2px;flex:1;min-height:18px;background:var(--line)}
+  .conn.done{background:var(--green)}
+  .stext{flex:1;padding-bottom:16px}
+  .stitle{font-size:14px;font-weight:700;color:var(--mute)}
+  .stitle.done{color:var(--text)}
+  .sbody{font-size:12px;color:var(--mute);margin-top:1px}
+
+  /* age gate */
+  .age{height:100%;background:var(--green);display:flex;flex-direction:column;justify-content:center;align-items:center;padding:24px;text-align:center}
+  .leaf{width:84px;height:84px;border-radius:20px;background:rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;font-size:48px}
+  .age h2{color:#fff;font-size:30px;font-weight:900;margin:14px 0 2px}
+  .age .tl2{color:rgba(255,255,255,.85);font-size:14px;margin-bottom:22px}
+  .agecard{background:#fff;border-radius:18px;padding:20px;width:100%}
+  .agecard h3{margin:0 0 8px;font-size:20px;font-weight:800}
+  .agecard p{margin:0 0 14px;font-size:13px;color:var(--mute);line-height:1.5}
+  .tabbar{position:sticky;bottom:0;display:flex;background:#fff;border-top:1px solid var(--line);height:54px}
+  .tabbar>div{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:11px;font-weight:600;color:var(--mute)}
+  .tabbar .on{color:var(--green)}
+  .ti{font-size:18px;line-height:1}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="head">
+    <h1>🌿 Mr Dweedery — UI Preview</h1>
+    <p>Static mock-up of the real screens (green &amp; grey theme, actual data &amp; layout). This is a visual only — the app itself is the Expo project in <code>mr-dweedery/</code>.</p>
+  </div>
+  <div class="legend">
+    <span><i class="sw" style="background:#228B40"></i>Green #228B40</span>
+    <span><i class="sw" style="background:#E3F1E7"></i>Green soft #E3F1E7</span>
+    <span><i class="sw" style="background:#F2F4F3"></i>Grey bg #F2F4F3</span>
+    <span><i class="sw" style="background:#EAEDEC;border:1px solid #D6DAD8"></i>Panel grey</span>
+    <span><i class="sw" style="background:#1E2522"></i>Text #1E2522</span>
+  </div>
+
+  <div class="grid">
+
+    <!-- AGE GATE -->
+    <div>
+      <div class="phone"><div class="notch"></div><div class="screen">
+        <div class="age">
+          <div class="leaf">🌿</div>
+          <h2>Mr Dweedery</h2>
+          <div class="tl2">Cannabis delivery, across South Africa</div>
+          <div class="agecard">
+            <h3>Are you 18 or older?</h3>
+            <p>You must be 18+ to use Mr Dweedery. By continuing you confirm you are of legal age and accept our terms. Products are for personal use only.</p>
+            <button class="btn center">Yes, I am 18 or older</button>
+            <p style="margin-top:12px;margin-bottom:0;font-size:11.5px;text-align:center">Please consume responsibly. Do not drive under the influence.</p>
+          </div>
+        </div>
+      </div></div>
+      <div class="caption">1 · Age gate<small>First launch, 18+ confirmation</small></div>
+    </div>
+
+    <!-- DISCOVER -->
+    <div>
+      <div class="phone"><div class="notch"></div><div class="screen">
+        <div class="pad">
+          <div class="loc">📍 Deliver to: 12 Main Road, Sea Point</div>
+          <div class="title">Mr Dweedery</div>
+          <div class="search">🔍 Search shops, areas or strains</div>
+          <div class="chips">
+            <span class="pill active">🌿 Flower</span>
+            <span class="pill">🚬 Pre-rolls</span>
+            <span class="pill">🍪 Edibles</span>
+            <span class="pill">💨 Vapes</span>
+          </div>
+          <div style="font-weight:800;font-size:15px;margin-bottom:10px">5 shops near you</div>
+
+          <div class="shop">
+            <div class="banner">🌿<div class="badge">FEATURED</div></div>
+            <div class="shopb">
+              <div class="row between"><div class="shopn">Green Room Dispensary</div><div class="stars">★ <b>4.8</b> <span>(1,240)</span></div></div>
+              <div class="muted" style="font-size:12.5px">Premium flower &amp; artisanal edibles</div>
+              <div class="meta" style="margin-top:5px">25–40 min<span class="d">·</span>1.7 km<span class="d">·</span>R 25.00 delivery</div>
+            </div>
+          </div>
+
+          <div class="shop">
+            <div class="banner">🔥<div class="badge">FEATURED</div></div>
+            <div class="shopb">
+              <div class="row between"><div class="shopn">High Society</div><div class="stars">★ <b>4.6</b> <span>(980)</span></div></div>
+              <div class="muted" style="font-size:12.5px">Top-shelf strains, fast delivery</div>
+              <div class="meta" style="margin-top:5px">30–50 min<span class="d">·</span>3.2 km<span class="d">·</span>R 30.00 delivery</div>
+            </div>
+          </div>
+
+          <div class="shop">
+            <div class="banner">💚<div class="closed">Closed</div></div>
+            <div class="shopb">
+              <div class="row between"><div class="shopn">Kush Corner</div><div class="stars">★ <b>4.4</b> <span>(1,520)</span></div></div>
+              <div class="muted" style="font-size:12.5px">Value buds &amp; bulk deals</div>
+              <div class="meta" style="margin-top:5px">40–60 min<span class="d">·</span>5.5 km<span class="d">·</span>R 25.00 delivery</div>
+            </div>
+          </div>
+        </div>
+        <div class="tabbar">
+          <div class="on"><span class="ti">🌿</span>Discover</div>
+          <div><span class="ti">🧾</span>Orders</div>
+          <div><span class="ti">👤</span>Account</div>
+        </div>
+      </div></div>
+      <div class="caption">2 · Discover<small>Search, filters, ratings, ETA &amp; fees</small></div>
+    </div>
+
+    <!-- SHOP -->
+    <div>
+      <div class="phone"><div class="notch"></div><div class="screen">
+        <div class="banner" style="height:120px;font-size:64px">🌿</div>
+        <div class="pad" style="border-bottom:8px solid var(--panel2)">
+          <div style="font-size:22px;font-weight:900">Green Room Dispensary</div>
+          <div class="muted" style="font-size:13px">Premium flower &amp; artisanal edibles</div>
+          <div class="row gap8" style="margin-top:4px"><div class="stars">★ <b>4.8</b> <span>(1,240)</span></div><span class="muted">·</span><span class="meta">Sea Point, Cape Town</span></div>
+          <div class="infostrip">
+            <div><div class="il">Delivery</div><div class="iv">25–40 min</div></div>
+            <div><div class="il">Distance</div><div class="iv">1.7 km</div></div>
+            <div><div class="il">Fee</div><div class="iv">R 25.00</div></div>
+            <div><div class="il">Min order</div><div class="iv">R 150</div></div>
+          </div>
+        </div>
+        <div class="pad" style="padding-top:6px">
+          <div class="sect">Flower</div>
+          <div class="prow">
+            <div class="thumb">🌿</div>
+            <div class="pinfo">
+              <div class="pname">OG Kush (3.5g)</div>
+              <div class="pdesc">Earthy, piney indica-dominant hybrid.</div>
+              <div class="row gap6"><span class="tag">THC 22%</span><span class="tag pop">Popular</span></div>
+              <div class="pprice">R 180.00</div>
+            </div>
+            <div class="row" style="align-items:center"><span class="stepper"><i>−</i><b>1</b><i>+</i></span></div>
+          </div>
+          <div class="prow">
+            <div class="thumb">🍋</div>
+            <div class="pinfo">
+              <div class="pname">Lemon Haze (3.5g)</div>
+              <div class="pdesc">Zesty sativa for a bright, social high.</div>
+              <div class="row gap6"><span class="tag">THC 20%</span></div>
+              <div class="pprice">R 175.00</div>
+            </div>
+            <div class="row" style="align-items:center"><span class="addbtn">＋</span></div>
+          </div>
+          <div class="sect">Pre-rolls</div>
+          <div class="prow" style="border:none">
+            <div class="thumb">🚬</div>
+            <div class="pinfo">
+              <div class="pname">House Pre-roll (1g)</div>
+              <div class="pdesc">Hand-rolled daily-driver joint.</div>
+              <div class="row gap6"><span class="tag">THC 18%</span><span class="tag pop">Popular</span></div>
+              <div class="pprice">R 60.00</div>
+            </div>
+            <div class="row" style="align-items:center"><span class="addbtn">＋</span></div>
+          </div>
+        </div>
+        <div style="position:sticky;bottom:0;background:var(--bg);border-top:1px solid var(--line);padding:10px 14px">
+          <button class="btn">View basket · 1 item <span>R 180.00</span></button>
+        </div>
+      </div></div>
+      <div class="caption">3 · Shop menu<small>Categories, THC tags, steppers, basket bar</small></div>
+    </div>
+
+    <!-- CART -->
+    <div>
+      <div class="phone"><div class="notch"></div><div class="screen">
+        <div class="pad" style="background:#fff;border-bottom:1px solid var(--line);font-weight:800">Your basket</div>
+        <div class="pad">
+          <div class="row gap12" style="margin-bottom:14px">
+            <div style="font-size:30px">🌿</div>
+            <div style="flex:1"><div class="bold" style="font-size:17px">Green Room Dispensary</div><div class="muted" style="font-size:12.5px">Sea Point, Cape Town</div></div>
+            <div style="color:var(--red);font-size:18px">🗑️</div>
+          </div>
+          <div class="card pad" style="margin-bottom:14px">
+            <div class="row gap12" style="padding:7px 0">
+              <div style="font-size:25px">🌿</div>
+              <div style="flex:1"><div class="bold" style="font-size:14px">OG Kush (3.5g)</div><div class="muted" style="font-size:12px">R 180.00</div></div>
+              <span class="stepper"><i>−</i><b>1</b><i>+</i></span>
+            </div>
+            <div class="row gap12" style="padding:7px 0">
+              <div style="font-size:25px">🚬</div>
+              <div style="flex:1"><div class="bold" style="font-size:14px">House Pre-roll (1g)</div><div class="muted" style="font-size:12px">R 60.00</div></div>
+              <span class="stepper"><i>−</i><b>2</b><i>+</i></span>
+            </div>
+          </div>
+          <div class="card pad">
+            <div class="sr"><span class="l">Subtotal</span><span class="v">R 300.00</span></div>
+            <div class="sr"><span class="l">Delivery fee</span><span class="v">R 25.00</span></div>
+            <div class="sr"><span class="l">Service fee</span><span class="v">R 9.00</span></div>
+            <div class="divider"></div>
+            <div class="sr total"><span class="l">Total</span><span class="v">R 334.00</span></div>
+          </div>
+        </div>
+        <div style="position:sticky;bottom:0;background:var(--bg);border-top:1px solid var(--line);padding:14px">
+          <button class="btn">Go to checkout <span>R 334.00</span></button>
+        </div>
+      </div></div>
+      <div class="caption">4 · Basket<small>Single-shop cart, fees, min-order check</small></div>
+    </div>
+
+    <!-- CHECKOUT -->
+    <div>
+      <div class="phone"><div class="notch"></div><div class="screen">
+        <div class="pad" style="background:#fff;border-bottom:1px solid var(--line);font-weight:800">Checkout</div>
+        <div class="pad">
+          <div class="sect" style="font-size:15px;margin-top:4px">Delivery address</div>
+          <div class="card pad" style="font-size:13.5px">12 Main Road, Sea Point, Cape Town</div>
+
+          <div class="sect" style="font-size:15px">Tip your driver</div>
+          <div class="row gap8">
+            <span class="pill" style="flex:1;justify-content:center">No tip</span>
+            <span class="pill active" style="flex:1;justify-content:center">R 10</span>
+            <span class="pill" style="flex:1;justify-content:center">R 20</span>
+            <span class="pill" style="flex:1;justify-content:center">R 30</span>
+          </div>
+
+          <div class="sect" style="font-size:15px">Payment method</div>
+          <div class="card pad">
+            <div class="pay"><span class="payi">💳</span><div style="flex:1"><div class="row gap8"><b style="font-size:14px">Credit / Debit card</b><span class="sb">SANDBOX</span></div><div class="muted" style="font-size:12px">Visa, Mastercard — secured by Yoco</div></div><span class="radio on">✓</span></div>
+            <div class="pay"><span class="payi">🅿️</span><div style="flex:1"><div class="row gap8"><b style="font-size:14px">PayFast</b><span class="sb">SANDBOX</span></div><div class="muted" style="font-size:12px">Card, Instant EFT, Mobicred &amp; more</div></div><span class="radio"></span></div>
+            <div class="pay"><span class="payi">🏦</span><div style="flex:1"><div class="row gap8"><b style="font-size:14px">Ozow</b><span class="sb">SANDBOX</span></div><div class="muted" style="font-size:12px">Instant EFT from your bank</div></div><span class="radio"></span></div>
+            <div class="pay"><span class="payi">📷</span><div style="flex:1"><div class="row gap8"><b style="font-size:14px">SnapScan</b><span class="sb">SANDBOX</span></div><div class="muted" style="font-size:12px">Scan to pay with the SnapScan app</div></div><span class="radio"></span></div>
+            <div class="pay"><span class="payi">💵</span><div style="flex:1"><b style="font-size:14px">Cash on delivery</b><div class="muted" style="font-size:12px">Pay the driver when your order arrives</div></div><span class="radio"></span></div>
+          </div>
+
+          <div class="sect" style="font-size:15px">Order summary</div>
+          <div class="card pad">
+            <div class="sr"><span class="l">Subtotal</span><span class="v">R 300.00</span></div>
+            <div class="sr"><span class="l">Delivery fee</span><span class="v">R 25.00</span></div>
+            <div class="sr"><span class="l">Service fee</span><span class="v">R 9.00</span></div>
+            <div class="sr"><span class="l">Driver tip</span><span class="v">R 10.00</span></div>
+            <div class="divider"></div>
+            <div class="sr total"><span class="l">Total</span><span class="v">R 344.00</span></div>
+          </div>
+        </div>
+        <div style="position:sticky;bottom:0;background:var(--bg);border-top:1px solid var(--line);padding:14px">
+          <button class="btn">Place order <span>R 344.00</span></button>
+        </div>
+      </div></div>
+      <div class="caption">5 · Checkout<small>Address, tip, SA payment platforms</small></div>
+    </div>
+
+    <!-- TRACKING -->
+    <div>
+      <div class="phone"><div class="notch"></div><div class="screen">
+        <div class="pad" style="background:#fff;border-bottom:1px solid var(--line);font-weight:800">Track order</div>
+        <div class="pad">
+          <div class="tbanner">
+            <div class="e">🛵</div>
+            <h2>Arriving in 25–40 min</h2>
+            <p>Green Room Dispensary · Order MW-3KF9A</p>
+          </div>
+          <div class="card pad" style="margin-top:14px">
+            <div class="step"><div class="tl"><div class="bullet done">✓</div><div class="conn done"></div></div><div class="stext"><div class="stitle done">Order placed</div><div class="sbody">We've received your order.</div></div></div>
+            <div class="step"><div class="tl"><div class="bullet done">✓</div><div class="conn done"></div></div><div class="stext"><div class="stitle done">Shop accepted</div><div class="sbody">The shop confirmed your order.</div></div></div>
+            <div class="step"><div class="tl"><div class="bullet done">✓</div><div class="conn"></div></div><div class="stext"><div class="stitle done">Preparing</div><div class="sbody">Your order is being packed.</div></div></div>
+            <div class="step"><div class="tl"><div class="bullet"></div><div class="conn"></div></div><div class="stext"><div class="stitle">On the way</div><div class="sbody">Your driver is heading to you.</div></div></div>
+            <div class="step"><div class="tl"><div class="bullet"></div></div><div class="stext"><div class="stitle">Delivered</div><div class="sbody">Enjoy! Thanks for ordering.</div></div></div>
+          </div>
+          <div class="card pad" style="margin-top:14px">
+            <div class="bold" style="font-size:14px;margin-bottom:6px">Order</div>
+            <div class="sr"><span class="l"><b class="green">1×</b> OG Kush (3.5g)</span><span class="v">R 180.00</span></div>
+            <div class="sr"><span class="l"><b class="green">2×</b> House Pre-roll (1g)</span><span class="v">R 120.00</span></div>
+            <div class="divider"></div>
+            <div class="sr total"><span class="l">Total paid</span><span class="v">R 344.00</span></div>
+            <div class="muted" style="font-size:11.5px;margin-top:8px">Paid via CARD · ref CARD-LX2K-8F1A</div>
+          </div>
+        </div>
+      </div></div>
+      <div class="caption">6 · Live tracking<small>Status timeline, items, payment ref</small></div>
+    </div>
+
+  </div>
+
+  <div style="text-align:center;color:#3c4a42;font-size:12.5px;margin-top:34px;line-height:1.7">
+    Also included but not shown: <b>Orders history</b> and <b>Account</b> (default address + live/sandbox payment status).<br>
+    Payments run in <b>sandbox</b> until live PayFast / Yoco / Ozow / SnapScan keys are added — see <code>src/lib/payments.ts</code>.
+  </div>
+</div>
+</body>
+</html>

@@ -1,4 +1,4 @@
-// Payment platform integration layer for Mr Weeders.
+// Payment platform integration layer for Mr Dweedery.
 //
 // This abstracts the South African payment gateways most commonly used by
 // delivery apps. Each provider has a `configured` flag driven by public keys
@@ -27,7 +27,7 @@ export interface PaymentMethod {
 // keys on a backend — never ship a server secret inside the APK.
 export const PAYMENTS_CONFIG = {
   sandbox: true,
-  payfast: { merchantId: "", merchantKey: "", returnUrl: "mrweeders://pay/return" },
+  payfast: { merchantId: "", merchantKey: "", returnUrl: "mrdweedery://pay/return" },
   yoco: { publicKey: "" },
   ozow: { siteCode: "", countryCode: "ZA", currencyCode: "ZAR" },
   snapscan: { merchantId: "" },

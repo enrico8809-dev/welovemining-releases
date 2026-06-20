@@ -1,4 +1,4 @@
-# Mr Weeders 🌿
+# Mr Dweedery 🌿
 
 Cannabis delivery app for South Africa — built like Mr D (shop discovery, basket,
 checkout, live order tracking) with multiple South African payment platforms.
@@ -25,7 +25,7 @@ Expo (React Native + TypeScript), React Navigation, lucide icons. No backend req
 ## Run locally
 
 ```bash
-cd mr-weeders
+cd mr-dweedery
 npm install
 npm start          # then press "a" for Android, or scan the QR with Expo Go
 ```
@@ -33,11 +33,11 @@ npm start          # then press "a" for Android, or scan the QR with Expo Go
 ## Build the Android APK
 
 The APK is built by GitHub Actions via EAS (see
-`.github/workflows/mr-weeders-build.yml`). It needs an `EXPO_TOKEN` repo secret
+`.github/workflows/mr-dweedery-build.yml`). It needs an `EXPO_TOKEN` repo secret
 (create one at https://expo.dev → Account → Access Tokens).
 
-- Push to `main` under `mr-weeders/**`, **or**
-- Run the **"Mr Weeders — Android APK (EAS Build)"** workflow manually
+- Push to `main` under `mr-dweedery/**`, **or**
+- Run the **"Mr Dweedery — Android APK (EAS Build)"** workflow manually
   (Actions tab → Run workflow → choose `preview` for an APK).
 
 The finished APK downloads from your Expo dashboard (and the build log link).

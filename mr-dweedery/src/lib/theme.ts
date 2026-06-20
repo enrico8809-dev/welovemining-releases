@@ -1,4 +1,4 @@
-// Mr Weeders brand tokens — green & grey.
+// Mr Dweedery brand tokens — green & grey.
 export const C = {
   green: "#228B40", // primary brand green
   greenDark: "#18602E", // pressed / dark accents

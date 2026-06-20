@@ -13,13 +13,13 @@ export default function AgeGateScreen() {
     <SafeAreaView style={styles.screen}>
       <View style={styles.center}>
         <Image source={ICON} style={styles.logo} resizeMode="contain" />
-        <Text style={styles.brand}>Mr Weeders</Text>
+        <Text style={styles.brand}>Mr Dweedery</Text>
         <Text style={styles.tagline}>Cannabis delivery, across South Africa</Text>
 
         <View style={styles.card}>
           <Text style={styles.heading}>Are you 18 or older?</Text>
           <Text style={styles.body}>
-            You must be 18+ to use Mr Weeders. By continuing you confirm you are of legal age and
+            You must be 18+ to use Mr Dweedery. By continuing you confirm you are of legal age and
             accept our terms. Products are for personal use only.
           </Text>
           <Button label="Yes, I am 18 or older" onPress={verifyAge} style={{ marginTop: 8 }} />

@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Mr Weeders",
-    "slug": "mr-weeders",
+    "name": "Mr Dweedery",
+    "slug": "mr-dweedery",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "scheme": "mrweeders",
+    "scheme": "mrdweedery",
     "userInterfaceStyle": "light",
     "backgroundColor": "#F2F4F3",
     "splash": {
@@ -15,10 +15,10 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "co.welovemining.mrweeders"
+      "bundleIdentifier": "co.welovemining.mrdweedery"
     },
     "android": {
-      "package": "co.welovemining.mrweeders",
+      "package": "co.welovemining.mrdweedery",
       "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#228B40",

@@ -36,7 +36,7 @@ export default function DiscoverScreen() {
             {address ? `Deliver to: ${address}` : "Set your delivery address"}
           </Text>
         </View>
-        <Text style={styles.title}>Mr Weeders</Text>
+        <Text style={styles.title}>Mr Dweedery</Text>
         <View style={styles.searchBox}>
           <Search color={C.mute} size={18} />
           <TextInput
