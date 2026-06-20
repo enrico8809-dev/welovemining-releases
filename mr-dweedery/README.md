@@ -40,7 +40,12 @@ The APK is built by GitHub Actions via EAS (see
 - Run the **"Mr Dweedery — Android APK (EAS Build)"** workflow manually
   (Actions tab → Run workflow → choose `preview` for an APK).
 
-The finished APK downloads from your Expo dashboard (and the build log link).
+When the build finishes, the workflow downloads the APK from EAS and publishes it
+to the **`mr-dweedery-latest`** GitHub Release, so there's a stable public
+download link:
+`https://github.com/enrico8809-dev/welovemining-releases/releases/tag/mr-dweedery-latest`
+(the file is `Mr-Dweedery-latest.apk`). The build also remains on your Expo
+dashboard.
 
 ## Going live with payments
 
