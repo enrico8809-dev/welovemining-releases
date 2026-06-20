@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "Mr Weeders",
+    "slug": "mr-weeders",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "mrweeders",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#F2F4F3",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#228B40"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "co.welovemining.mrweeders"
+    },
+    "android": {
+      "package": "co.welovemining.mrweeders",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "backgroundColor": "#228B40",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
