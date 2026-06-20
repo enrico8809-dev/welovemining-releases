@@ -1,5 +1,5 @@
 import React, { useLayoutEffect, useMemo } from "react";
-import { Alert, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, ImageBackground, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { RouteProp, useNavigation, useRoute } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -8,6 +8,7 @@ import ProductRow from "../components/ProductRow";
 import Button from "../components/Button";
 import { CATEGORIES } from "../lib/data";
 import { productsForShop, shopById } from "../lib/data";
+import { shopImage } from "../lib/images";
 import { useStore } from "../lib/StoreContext";
 import { distanceLabel, etaLabel, fmt } from "../lib/format";
 import { C } from "../lib/theme";
@@ -55,9 +56,9 @@ export default function ShopScreen() {
   return (
     <View style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.hero}>
+        <ImageBackground source={shopImage(shop.id)} style={styles.hero} imageStyle={styles.heroImg}>
           <Text style={styles.heroEmoji}>{shop.emoji}</Text>
-        </View>
+        </ImageBackground>
         <View style={styles.headerBlock}>
           <Text style={styles.name}>{shop.name}</Text>
           <Text style={styles.tagline}>{shop.tagline}</Text>
@@ -125,7 +126,8 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.bg },
   content: { paddingBottom: 120 },
   hero: { height: 140, backgroundColor: C.greenSoft, alignItems: "center", justifyContent: "center" },
-  heroEmoji: { fontSize: 72 },
+  heroImg: { resizeMode: "cover" },
+  heroEmoji: { fontSize: 72, textShadowColor: "rgba(0,0,0,0.25)", textShadowRadius: 8 },
   headerBlock: { padding: 16, gap: 6, borderBottomWidth: 8, borderBottomColor: C.panel2 },
   name: { color: C.text, fontSize: 24, fontWeight: "900" },
   tagline: { color: C.mute, fontSize: 14 },

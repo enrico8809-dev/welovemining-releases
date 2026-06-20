@@ -1,11 +1,12 @@
 import React from "react";
-import { ScrollView, StyleSheet, Text, View, Pressable } from "react-native";
+import { ImageBackground, ScrollView, StyleSheet, Text, View, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Trash2 } from "lucide-react-native";
 import Button from "../components/Button";
 import { productById, shopById } from "../lib/data";
+import { productImage } from "../lib/images";
 import { SERVICE_FEE, useStore } from "../lib/StoreContext";
 import { fmt } from "../lib/format";
 import { C } from "../lib/theme";
@@ -53,7 +54,9 @@ export default function CartScreen() {
             if (!p) return null;
             return (
               <View key={line.productId} style={styles.line}>
-                <Text style={styles.lineEmoji}>{p.emoji}</Text>
+                <ImageBackground source={productImage(p.id)} style={styles.lineThumb} imageStyle={styles.lineThumbImg}>
+                  <Text style={styles.lineEmoji}>{p.emoji}</Text>
+                </ImageBackground>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.lineName}>{p.name}</Text>
                   <Text style={styles.linePrice}>{fmt(p.price)}</Text>
@@ -117,7 +120,9 @@ const styles = StyleSheet.create({
   shopArea: { color: C.mute, fontSize: 13 },
   card: { backgroundColor: C.panel, borderRadius: 14, borderWidth: 1, borderColor: C.line, padding: 14 },
   line: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 8 },
-  lineEmoji: { fontSize: 26 },
+  lineThumb: { width: 44, height: 44, borderRadius: 10, overflow: "hidden", alignItems: "center", justifyContent: "center", backgroundColor: C.greenSoft },
+  lineThumbImg: { borderRadius: 10, resizeMode: "cover" },
+  lineEmoji: { fontSize: 24, textShadowColor: "rgba(0,0,0,0.2)", textShadowRadius: 4 },
   lineName: { color: C.text, fontSize: 15, fontWeight: "700" },
   linePrice: { color: C.mute, fontSize: 13, marginTop: 2 },
   stepper: {

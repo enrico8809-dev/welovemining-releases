@@ -55,7 +55,7 @@
   .chips{display:flex;gap:8px;overflow-x:auto;padding:12px 0}
   .chips::-webkit-scrollbar{height:0}
   .shop{background:#fff;border:1px solid var(--line);border-radius:16px;overflow:hidden;margin-bottom:14px}
-  .banner{height:96px;background:var(--greenSoft);display:flex;align-items:center;justify-content:center;font-size:50px;position:relative}
+  .banner{height:96px;background:linear-gradient(135deg,#56b06c 0%,#228B40 55%,#18602E 100%);display:flex;align-items:center;justify-content:center;font-size:50px;position:relative;text-shadow:0 2px 6px rgba(0,0,0,.3)}
   .badge{position:absolute;top:9px;left:9px;background:var(--green);color:#fff;font-size:9px;font-weight:800;letter-spacing:.5px;padding:4px 7px;border-radius:6px}
   .closed{position:absolute;inset:0;background:rgba(30,37,34,.45);color:#fff;font-weight:800;letter-spacing:1px;display:flex;align-items:center;justify-content:center}
   .shopb{padding:13px}
@@ -65,7 +65,10 @@
 
   /* product rows */
   .prow{display:flex;gap:12px;padding:13px 0;border-bottom:1px solid var(--line)}
-  .thumb{width:60px;height:60px;border-radius:12px;background:var(--greenSoft);display:flex;align-items:center;justify-content:center;font-size:28px;flex:none}
+  .thumb{width:60px;height:60px;border-radius:12px;background:linear-gradient(135deg,#5aa86e,#1d6e38);display:flex;align-items:center;justify-content:center;font-size:28px;flex:none;text-shadow:0 1px 4px rgba(0,0,0,.25)}
+  .thumb.gold{background:linear-gradient(135deg,#e2b656,#96680f)}
+  .thumb.tan{background:linear-gradient(135deg,#c9aa78,#785630)}
+  .thumb.teal{background:linear-gradient(135deg,#78b2b6,#26565c)}
   .pinfo{flex:1}
   .pname{font-weight:700;font-size:14px}
   .pdesc{color:var(--mute);font-size:12.5px;line-height:1.4;margin:2px 0}
@@ -123,7 +126,7 @@
 <div class="page">
   <div class="head">
     <h1>🌿 Mr Dweedery — UI Preview</h1>
-    <p>Static mock-up of the real screens (green &amp; grey theme, actual data &amp; layout). This is a visual only — the app itself is the Expo project in <code>mr-dweedery/</code>.</p>
+    <p>Static mock-up of the real screens (green &amp; grey theme, actual data &amp; layout). This is a visual only — the app itself is the Expo project in <code>mr-dweedery/</code>. Now with <b>10 shops</b>, <b>44 products</b> (stylised image tiles), and a Firebase payment backend.</p>
   </div>
   <div class="legend">
     <span><i class="sw" style="background:#228B40"></i>Green #228B40</span>
@@ -373,7 +376,8 @@
 
   <div style="text-align:center;color:#3c4a42;font-size:12.5px;margin-top:34px;line-height:1.7">
     Also included but not shown: <b>Orders history</b> and <b>Account</b> (default address + live/sandbox payment status).<br>
-    Payments run in <b>sandbox</b> until live PayFast / Yoco / Ozow / SnapScan keys are added — see <code>src/lib/payments.ts</code>.
+    Payments run in <b>sandbox</b> until live PayFast / Yoco / Ozow / SnapScan keys are added. The real charges are handled by the
+    Firebase Functions backend in <code>mr-dweedery-backend/</code> — secret keys live there, never in the APK.
   </div>
 </div>
 </body>

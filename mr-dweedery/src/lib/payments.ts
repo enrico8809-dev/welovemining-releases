@@ -24,9 +24,13 @@ export interface PaymentMethod {
 
 // ---- Configuration ---------------------------------------------------------
 // Replace empty strings with real public/merchant keys to go live. Keep secret
-// keys on a backend — never ship a server secret inside the APK.
+// keys on a backend — never ship a server secret inside the APK. The actual
+// charge is performed by the Firebase Functions backend in mr-dweedery-backend
+// (set `backendUrl` to its deployed base, e.g.
+// https://europe-west1-<project>.cloudfunctions.net/api).
 export const PAYMENTS_CONFIG = {
   sandbox: true,
+  backendUrl: "", // e.g. "https://europe-west1-mr-dweedery.cloudfunctions.net/api"
   payfast: { merchantId: "", merchantKey: "", returnUrl: "mrdweedery://pay/return" },
   yoco: { publicKey: "" },
   ozow: { siteCode: "", countryCode: "ZA", currencyCode: "ZAR" },
@@ -105,7 +109,18 @@ export interface ChargeResult {
   reference: string;
   message: string;
   sandbox: boolean;
+  /** For redirect/QR gateways: the hosted-checkout URL to open in a WebView. */
+  redirectUrl?: string;
 }
+
+/** Map a payment method to its backend endpoint + the field carrying the ref. */
+const BACKEND_ENDPOINTS: Partial<Record<PaymentMethodId, string>> = {
+  card: "/yoco/charge",
+  yoco: "/yoco/charge",
+  payfast: "/payfast/create",
+  ozow: "/ozow/create",
+  snapscan: "/snapscan/create",
+};
 
 function genRef(provider: string): string {
   return `${provider.toUpperCase()}-${Date.now().toString(36)}-${Math.random()
@@ -142,11 +157,51 @@ export async function charge(req: ChargeRequest): Promise<ChargeResult> {
     };
   }
 
-  // ---- Live integration points ------------------------------------------
-  // PayFast / Ozow: build a signed form and open the hosted checkout URL in a
-  //   WebView, then verify the ITN/notify callback on your backend.
-  // Yoco: tokenise the card with the Yoco SDK and charge via your backend.
-  // SnapScan: create a payment and render the merchant QR / deep link.
-  // Each of these requires a server endpoint holding the secret key.
-  throw new Error(`Live ${req.method} integration not wired up yet.`);
+  // ---- Live: call the payment backend -----------------------------------
+  if (!PAYMENTS_CONFIG.backendUrl) {
+    throw new Error("Live payments need PAYMENTS_CONFIG.backendUrl (see mr-dweedery-backend).");
+  }
+  const endpoint = BACKEND_ENDPOINTS[req.method];
+  if (!endpoint) throw new Error(`No backend endpoint for ${req.method}.`);
+
+  const resp = await fetch(`${PAYMENTS_CONFIG.backendUrl}${endpoint}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      amount: req.amount,
+      reference: req.reference,
+      orderId: req.orderId,
+      email: req.customerEmail,
+      itemName: "Mr Dweedery order",
+      // Card charges: tokenise with the Yoco SDK on-device first, then pass it.
+      // token: <yoco card token>,
+    }),
+  });
+  const data = (await resp.json()) as {
+    ok?: boolean;
+    error?: unknown;
+    reference?: string;
+    url?: string; // hosted checkout / QR for redirect & qr gateways
+  };
+  if (!resp.ok || data.ok === false) {
+    return {
+      ok: false,
+      reference: req.reference,
+      message: typeof data.error === "string" ? data.error : `Payment failed (${req.method}).`,
+      sandbox: false,
+    };
+  }
+
+  // Redirect / QR gateways return a URL the checkout screen opens in a WebView;
+  // the order is only confirmed once the backend notify/webhook fires.
+  return {
+    ok: true,
+    reference: data.reference || req.reference,
+    message:
+      data.url != null
+        ? `Complete payment via ${req.method}.`
+        : `Payment authorised via ${req.method}.`,
+    sandbox: false,
+    redirectUrl: data.url,
+  };
 }

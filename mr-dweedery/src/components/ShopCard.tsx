@@ -1,7 +1,8 @@
 import React from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { ImageBackground, Pressable, StyleSheet, Text, View } from "react-native";
 import Stars from "./Stars";
 import { Shop } from "../lib/types";
+import { shopImage } from "../lib/images";
 import { distanceLabel, etaLabel, fmt } from "../lib/format";
 import { C } from "../lib/theme";
 
@@ -11,7 +12,7 @@ export default function ShopCard({ shop, onPress }: { shop: Shop; onPress: () =>
       style={({ pressed }) => [styles.card, pressed && { opacity: 0.9 }]}
       onPress={onPress}
     >
-      <View style={styles.banner}>
+      <ImageBackground source={shopImage(shop.id)} style={styles.banner} imageStyle={styles.bannerImg}>
         <Text style={styles.bannerEmoji}>{shop.emoji}</Text>
         {shop.featured ? (
           <View style={styles.badge}>
@@ -23,7 +24,7 @@ export default function ShopCard({ shop, onPress }: { shop: Shop; onPress: () =>
             <Text style={styles.closedText}>Closed</Text>
           </View>
         ) : null}
-      </View>
+      </ImageBackground>
       <View style={styles.body}>
         <View style={styles.titleRow}>
           <Text style={styles.name} numberOfLines={1}>
@@ -60,7 +61,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  bannerEmoji: { fontSize: 56 },
+  bannerImg: { resizeMode: "cover" },
+  bannerEmoji: { fontSize: 56, textShadowColor: "rgba(0,0,0,0.25)", textShadowRadius: 6 },
   badge: {
     position: "absolute",
     top: 10,

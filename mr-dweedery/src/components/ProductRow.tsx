@@ -1,6 +1,7 @@
 import React from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { ImageBackground, Pressable, StyleSheet, Text, View } from "react-native";
 import { Product } from "../lib/types";
+import { productImage } from "../lib/images";
 import { fmt } from "../lib/format";
 import { C } from "../lib/theme";
 
@@ -15,9 +16,9 @@ interface ProductRowProps {
 export default function ProductRow({ product, qty, onAdd, onInc, onDec }: ProductRowProps) {
   return (
     <View style={styles.row}>
-      <View style={styles.thumb}>
+      <ImageBackground source={productImage(product.id)} style={styles.thumb} imageStyle={styles.thumbImg}>
         <Text style={styles.thumbEmoji}>{product.emoji}</Text>
-      </View>
+      </ImageBackground>
       <View style={styles.info}>
         <Text style={styles.name}>{product.name}</Text>
         <Text style={styles.desc} numberOfLines={2}>
@@ -70,11 +71,13 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 12,
+    overflow: "hidden",
     backgroundColor: C.greenSoft,
     alignItems: "center",
     justifyContent: "center",
   },
-  thumbEmoji: { fontSize: 30 },
+  thumbImg: { borderRadius: 12, resizeMode: "cover" },
+  thumbEmoji: { fontSize: 30, textShadowColor: "rgba(0,0,0,0.22)", textShadowRadius: 5 },
   info: { flex: 1, gap: 3 },
   name: { color: C.text, fontSize: 15, fontWeight: "700" },
   desc: { color: C.mute, fontSize: 13, lineHeight: 18 },
