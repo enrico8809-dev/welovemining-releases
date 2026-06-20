@@ -1,3 +1,5 @@
+import { Order } from "../lib/types";
+
 export type TabParamList = {
   Discover: undefined;
   Orders: undefined;
@@ -9,5 +11,6 @@ export type RootStackParamList = {
   Shop: { shopId: string };
   Cart: undefined;
   Checkout: undefined;
+  Payment: { order: Order; email?: string };
   OrderTracking: { orderId: string };
 };

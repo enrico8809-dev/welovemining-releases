@@ -10,6 +10,7 @@ import AccountScreen from "../screens/AccountScreen";
 import ShopScreen from "../screens/ShopScreen";
 import CartScreen from "../screens/CartScreen";
 import CheckoutScreen from "../screens/CheckoutScreen";
+import PaymentScreen from "../screens/PaymentScreen";
 import OrderTrackingScreen from "../screens/OrderTrackingScreen";
 import { RootStackParamList, TabParamList } from "./routes";
 import { useStore } from "../lib/StoreContext";
@@ -92,6 +93,7 @@ export default function RootNavigator() {
         <Stack.Screen name="Shop" component={ShopScreen} options={{ title: "" }} />
         <Stack.Screen name="Cart" component={CartScreen} options={{ title: "Your basket" }} />
         <Stack.Screen name="Checkout" component={CheckoutScreen} options={{ title: "Checkout" }} />
+        <Stack.Screen name="Payment" component={PaymentScreen} options={{ title: "Payment" }} />
         <Stack.Screen
           name="OrderTracking"
           component={OrderTrackingScreen}

@@ -55,12 +55,18 @@ Firebase Functions backend that holds the **secret** keys — see
 
 1. Deploy the backend (`cd mr-dweedery-backend && npm install && npm run deploy`) with your gateway keys.
 2. In `PAYMENTS_CONFIG`, set `backendUrl` to the deployed function base URL, fill in the public/merchant keys, and set `sandbox: false`.
-3. The `charge()` function then calls the backend:
-   - **Yoco (card)** — tokenise on-device with the Yoco SDK, then `POST /yoco/charge`.
-   - **PayFast / Ozow** — `POST /…/create` returns a signed hosted-checkout URL to open in a WebView; the order is confirmed by the server-side ITN/notify.
-   - **SnapScan** — `POST /snapscan/create` returns a scan-to-pay QR / deep link.
 
-Never put secret keys in the app — only public keys and the backend URL ship in the APK.
+That's it — the in-app flow is already wired. When `isLivePayment()` is true,
+checkout opens the **Payment screen** (`src/screens/PaymentScreen.tsx`), which
+runs the gateway flow in a WebView and only persists the order once payment
+completes:
+
+- **Yoco (card)** — loads the Yoco SDK in a WebView to tokenise the card on-device, then calls `POST /yoco/charge`.
+- **PayFast / Ozow** — `POST /…/create` returns signed fields; the screen auto-submits them to the hosted checkout and intercepts the `mrdweedery://pay/return` (success) / `…/cancel` deep links. The server-side ITN/notify is the source of truth.
+- **SnapScan** — `POST /snapscan/create` returns a scan-to-pay page; confirmed via the backend webhook.
+
+Sandbox and cash on delivery stay fully local (no backend call). Never put
+secret keys in the app — only public keys and the backend URL ship in the APK.
 
 ## Disclaimer
 

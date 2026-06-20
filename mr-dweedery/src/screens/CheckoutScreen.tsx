@@ -7,7 +7,7 @@ import { Check } from "lucide-react-native";
 import Button from "../components/Button";
 import { productById, shopById } from "../lib/data";
 import { SERVICE_FEE, useStore } from "../lib/StoreContext";
-import { charge, PAYMENT_METHODS } from "../lib/payments";
+import { charge, isLivePayment, PAYMENT_METHODS } from "../lib/payments";
 import { fmt } from "../lib/format";
 import { Order, PaymentMethodId } from "../lib/types";
 import { C } from "../lib/theme";
@@ -49,47 +49,45 @@ export default function CheckoutScreen() {
     await setAddress(addr.trim());
     const orderId = genId("MW");
 
-    try {
-      const result = await charge({
-        method,
-        amount: total,
-        orderId,
-        reference: orderId,
-        customerEmail: undefined,
-      });
+    const order: Order = {
+      id: orderId,
+      shopId: shop!.id,
+      shopName: shop!.name,
+      lines: cart.map((l) => {
+        const p = productById(l.productId)!;
+        return { name: p.name, qty: l.qty, price: p.price };
+      }),
+      subtotal: totals.subtotal,
+      deliveryFee,
+      serviceFee: SERVICE_FEE,
+      tip,
+      total,
+      paymentMethod: method,
+      paymentRef: "",
+      address: addr.trim(),
+      createdAt: Date.now(),
+      status: "placed",
+      etaMin: shop!.etaMin,
+      etaMax: shop!.etaMax,
+    };
 
+    try {
+      // Live gateways (card/PayFast/Ozow/SnapScan): the Payment screen runs the
+      // WebView flow, then persists the order and goes to tracking on success.
+      if (isLivePayment(method)) {
+        navigation.navigate("Payment", { order });
+        return;
+      }
+
+      // Sandbox or cash on delivery: resolve locally.
+      const result = await charge({ method, amount: total, orderId, reference: orderId });
       if (!result.ok) {
         Alert.alert("Payment failed", result.message);
         return;
       }
-
-      const order: Order = {
-        id: orderId,
-        shopId: shop!.id,
-        shopName: shop!.name,
-        lines: cart
-          .map((l) => {
-            const p = productById(l.productId)!;
-            return { name: p.name, qty: l.qty, price: p.price };
-          })
-          .filter(Boolean),
-        subtotal: totals.subtotal,
-        deliveryFee,
-        serviceFee: SERVICE_FEE,
-        tip,
-        total,
-        paymentMethod: method,
-        paymentRef: result.reference,
-        address: addr.trim(),
-        createdAt: Date.now(),
-        status: "placed",
-        etaMin: shop!.etaMin,
-        etaMax: shop!.etaMax,
-      };
-
-      await placeOrder(order);
+      await placeOrder({ ...order, paymentRef: result.reference });
       navigation.reset({
-        index: 0,
+        index: 1,
         routes: [{ name: "Tabs" }, { name: "OrderTracking", params: { orderId } }],
       });
     } catch (e: any) {

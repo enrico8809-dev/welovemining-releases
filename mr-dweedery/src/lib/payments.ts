@@ -109,18 +109,11 @@ export interface ChargeResult {
   reference: string;
   message: string;
   sandbox: boolean;
-  /** For redirect/QR gateways: the hosted-checkout URL to open in a WebView. */
-  redirectUrl?: string;
 }
 
-/** Map a payment method to its backend endpoint + the field carrying the ref. */
-const BACKEND_ENDPOINTS: Partial<Record<PaymentMethodId, string>> = {
-  card: "/yoco/charge",
-  yoco: "/yoco/charge",
-  payfast: "/payfast/create",
-  ozow: "/ozow/create",
-  snapscan: "/snapscan/create",
-};
+/** Deep links the WebView intercepts to detect a finished hosted checkout. */
+export const PAY_RETURN_URL = "mrdweedery://pay/return";
+export const PAY_CANCEL_URL = "mrdweedery://pay/cancel";
 
 function genRef(provider: string): string {
   return `${provider.toUpperCase()}-${Date.now().toString(36)}-${Math.random()
@@ -129,40 +122,64 @@ function genRef(provider: string): string {
 }
 
 /**
- * Authorise a charge. In sandbox mode this resolves to a simulated success so
- * the order pipeline can be exercised without live credentials. Swap the inner
- * branches for real provider calls when keys are configured.
+ * True when a real charge should be attempted for this method: sandbox is off,
+ * a backend URL is set, and the gateway has live keys. Cash is always handled
+ * locally. The checkout screen uses this to decide between the simulated
+ * `charge()` and the live WebView flow.
+ */
+export function isLivePayment(method: PaymentMethodId): boolean {
+  return (
+    !PAYMENTS_CONFIG.sandbox &&
+    !!PAYMENTS_CONFIG.backendUrl &&
+    method !== "cash" &&
+    isConfigured(method)
+  );
+}
+
+/**
+ * Sandbox / cash resolver. In sandbox mode this returns a simulated success so
+ * the order pipeline works without live credentials. Live charges go through
+ * `createGatewayCheckout` / `chargeYocoToken` (driven by the Payment screen).
  */
 export async function charge(req: ChargeRequest): Promise<ChargeResult> {
-  const sandbox = PAYMENTS_CONFIG.sandbox || !isConfigured(req.method);
-
-  // Simulate network/processing latency.
-  await new Promise((r) => setTimeout(r, 900));
+  await new Promise((r) => setTimeout(r, 900)); // simulate latency
 
   if (req.method === "cash") {
     return {
       ok: true,
       reference: genRef("cash"),
       message: "Cash on delivery — pay the driver when your order arrives.",
-      sandbox,
+      sandbox: PAYMENTS_CONFIG.sandbox,
     };
   }
 
-  if (sandbox) {
-    return {
-      ok: true,
-      reference: genRef(req.method),
-      message: `Sandbox payment approved via ${req.method}. Add live keys to charge real cards.`,
-      sandbox: true,
-    };
-  }
+  return {
+    ok: true,
+    reference: genRef(req.method),
+    message: `Sandbox payment approved via ${req.method}. Add live keys to charge real cards.`,
+    sandbox: true,
+  };
+}
 
-  // ---- Live: call the payment backend -----------------------------------
-  if (!PAYMENTS_CONFIG.backendUrl) {
-    throw new Error("Live payments need PAYMENTS_CONFIG.backendUrl (see mr-dweedery-backend).");
-  }
-  const endpoint = BACKEND_ENDPOINTS[req.method];
-  if (!endpoint) throw new Error(`No backend endpoint for ${req.method}.`);
+const CREATE_ENDPOINTS: Partial<Record<PaymentMethodId, string>> = {
+  payfast: "/payfast/create",
+  ozow: "/ozow/create",
+  snapscan: "/snapscan/create",
+};
+
+/** Hosted-checkout instructions returned by the backend create endpoints. */
+export interface GatewayCheckout {
+  /** URL to load (SnapScan QR page) or POST to (PayFast/Ozow). */
+  url: string;
+  /** Present for PayFast/Ozow — POST these as a form to `url`. */
+  fields?: Record<string, string>;
+}
+
+/** Create a hosted checkout for redirect/QR gateways (PayFast, Ozow, SnapScan). */
+export async function createGatewayCheckout(req: ChargeRequest): Promise<GatewayCheckout> {
+  if (!PAYMENTS_CONFIG.backendUrl) throw new Error("PAYMENTS_CONFIG.backendUrl is not set.");
+  const endpoint = CREATE_ENDPOINTS[req.method];
+  if (!endpoint) throw new Error(`No checkout endpoint for ${req.method}.`);
 
   const resp = await fetch(`${PAYMENTS_CONFIG.backendUrl}${endpoint}`, {
     method: "POST",
@@ -173,35 +190,41 @@ export async function charge(req: ChargeRequest): Promise<ChargeResult> {
       orderId: req.orderId,
       email: req.customerEmail,
       itemName: "Mr Dweedery order",
-      // Card charges: tokenise with the Yoco SDK on-device first, then pass it.
-      // token: <yoco card token>,
     }),
   });
-  const data = (await resp.json()) as {
-    ok?: boolean;
-    error?: unknown;
-    reference?: string;
-    url?: string; // hosted checkout / QR for redirect & qr gateways
-  };
+  const data = (await resp.json()) as { ok?: boolean; error?: unknown; url?: string; fields?: Record<string, string> };
+  if (!resp.ok || data.ok === false || !data.url) {
+    throw new Error(typeof data.error === "string" ? data.error : `Could not start ${req.method} checkout.`);
+  }
+  return { url: data.url, fields: data.fields };
+}
+
+/** Charge a Yoco card token (obtained on-device via the Yoco SDK WebView). */
+export async function chargeYocoToken(token: string, req: ChargeRequest): Promise<ChargeResult> {
+  if (!PAYMENTS_CONFIG.backendUrl) throw new Error("PAYMENTS_CONFIG.backendUrl is not set.");
+  const resp = await fetch(`${PAYMENTS_CONFIG.backendUrl}/yoco/charge`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      token,
+      amount: req.amount,
+      currency: "ZAR",
+      reference: req.reference,
+    }),
+  });
+  const data = (await resp.json()) as { ok?: boolean; error?: unknown; reference?: string };
   if (!resp.ok || data.ok === false) {
     return {
       ok: false,
       reference: req.reference,
-      message: typeof data.error === "string" ? data.error : `Payment failed (${req.method}).`,
+      message: typeof data.error === "string" ? data.error : "Card was declined.",
       sandbox: false,
     };
   }
-
-  // Redirect / QR gateways return a URL the checkout screen opens in a WebView;
-  // the order is only confirmed once the backend notify/webhook fires.
   return {
     ok: true,
     reference: data.reference || req.reference,
-    message:
-      data.url != null
-        ? `Complete payment via ${req.method}.`
-        : `Payment authorised via ${req.method}.`,
+    message: "Card payment approved.",
     sandbox: false,
-    redirectUrl: data.url,
   };
 }
