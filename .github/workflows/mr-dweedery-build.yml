@@ -1,0 +1,88 @@
+name: Mr Dweedery — Android APK (EAS Build)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "mr-dweedery/**"
+      - ".github/workflows/mr-dweedery-build.yml"
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "EAS build profile"
+        required: false
+        default: "preview"
+        type: choice
+        options:
+          - preview
+          - production
+
+permissions:
+  contents: write # needed to publish the APK to a GitHub Release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mr-dweedery
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Set up EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Build on EAS and capture artifact URL
+        id: build
+        run: |
+          PROFILE="${{ inputs.profile || 'preview' }}"
+          echo "Building with profile: $PROFILE"
+          # --json prints the build objects to stdout (progress goes to stderr).
+          eas build --platform android --profile "$PROFILE" \
+            --non-interactive --json --no-wait=false > build-output.json
+          URL=$(jq -r '.[0].artifacts.applicationArchiveUrl // .[0].artifacts.buildUrl // empty' build-output.json)
+          if [ -z "$URL" ]; then
+            echo "::error::Could not find a build artifact URL in EAS output."
+            cat build-output.json
+            exit 1
+          fi
+          case "$URL" in
+            *.aab*) EXT=aab ;;
+            *) EXT=apk ;;
+          esac
+          echo "artifact_url=$URL" >> "$GITHUB_OUTPUT"
+          echo "artifact_ext=$EXT" >> "$GITHUB_OUTPUT"
+          echo "Artifact: $URL (.$EXT)"
+
+      - name: Download the build artifact
+        run: |
+          curl -fL -o "Mr-Dweedery-latest.${{ steps.build.outputs.artifact_ext }}" \
+            "${{ steps.build.outputs.artifact_url }}"
+          ls -lh Mr-Dweedery-latest.*
+
+      - name: Publish to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: mr-dweedery-latest
+          name: Mr Dweedery (latest Android build)
+          body: |
+            Latest **Mr Dweedery** Android build for sideloading.
+
+            **Install on your phone:** download
+            `Mr-Dweedery-latest.${{ steps.build.outputs.artifact_ext }}` below and
+            tap it (allow "install from unknown sources"). Demo runs with sample
+            shops and sandbox payments — add live keys + a backend URL to take
+            real payments.
+
+            Built by EAS from commit ${{ github.sha }}.
+          files: mr-dweedery/Mr-Dweedery-latest.${{ steps.build.outputs.artifact_ext }}
