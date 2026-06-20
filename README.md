@@ -36,6 +36,24 @@ want a permanent custom domain).
 
 Installers/APK are built by GitHub Actions and published to the releases above.
 
+---
+
+## Mr Dweedery 🌿 (cannabis delivery app)
+
+A separate, Mr D–style cannabis delivery app for South Africa — shop discovery,
+basket, checkout with SA payment platforms (PayFast, Yoco, Ozow, SnapScan), and
+live order tracking. Green & grey, Android-first. **18+ only.**
+
+| Part | Runs on | Download |
+|---|---|---|
+| **Mr Dweedery** (app) | Android phones | [`mr-dweedery-latest`](../../releases/tag/mr-dweedery-latest) → `Mr-Dweedery-latest.apk` |
+
+- `mr-dweedery/` — the app (Expo / React Native + TypeScript)
+- `mr-dweedery-backend/` — Firebase Functions payment backend (holds secret keys)
+
+The APK is built on EAS and auto-published to the release above by GitHub Actions
+(needs an `EXPO_TOKEN` repo secret). See [`mr-dweedery/README.md`](mr-dweedery/README.md).
+
 ## Support
 
 **enrico@welovemining.co.za** · [welovemining.co.za](https://welovemining.co.za)
