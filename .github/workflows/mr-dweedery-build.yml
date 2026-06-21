@@ -42,16 +42,35 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
+      - name: Check EXPO_TOKEN is present
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "::error::EXPO_TOKEN repository secret is empty/unset. Add it at" \
+                 "Settings → Secrets and variables → Actions → Repository secrets" \
+                 "(name exactly EXPO_TOKEN), then re-run."
+            exit 1
+          fi
+          echo "EXPO_TOKEN is set (length: ${#EXPO_TOKEN})."
+
       - name: Build on EAS and capture artifact URL
         id: build
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
+          set +e
           PROFILE="${{ inputs.profile || 'preview' }}"
           echo "Building with profile: $PROFILE"
-          # --json prints the build objects to stdout (progress goes to stderr).
+          # --json prints the build objects to stdout; the real error goes to stderr.
           eas build --platform android --profile "$PROFILE" \
-            --non-interactive --json --no-wait=false > build-output.json
+            --non-interactive --json --no-wait=false > build-output.json 2> build-error.log
+          code=$?
+          echo "----- eas stderr -----"; cat build-error.log
+          if [ $code -ne 0 ]; then
+            echo "::error::eas build failed (exit $code). See stderr above."
+            exit 1
+          fi
           URL=$(jq -r '.[0].artifacts.applicationArchiveUrl // .[0].artifacts.buildUrl // empty' build-output.json)
           if [ -z "$URL" ]; then
             echo "::error::Could not find a build artifact URL in EAS output."
