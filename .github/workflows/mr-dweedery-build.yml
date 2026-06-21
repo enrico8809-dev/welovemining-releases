@@ -42,13 +42,6 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
-      - name: Ensure EAS project is linked
-        # First run links/creates the EAS project under the token's account and
-        # writes extra.eas.projectId into app.json, which `eas build` needs.
-        run: eas init --non-interactive --force
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-
       - name: Build on EAS and capture artifact URL
         id: build
         env:
