@@ -1,11 +1,13 @@
 import React, { useMemo, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Check } from "lucide-react-native";
 import Header from "../components/Header";
 import Card from "../components/Card";
+import { GhostButton, PrimaryButton, SectionLabel } from "../components/ui";
 import { useLedger } from "../lib/LedgerContext";
 import { Account, RECIPES, Recipe, Txn } from "../lib/accounting";
 import { fmt } from "../lib/format";
-import { C, FONT_DISPLAY, FONT_DISPLAY_BOLD, FONT_MONO } from "../lib/theme";
+import { C, FONT_DISPLAY, FONT_MONO, R } from "../lib/theme";
 
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
@@ -23,6 +25,7 @@ export default function AddScreen() {
   const [amount, setAmount] = useState("");
   const [desc, setDesc] = useState("");
   const [date, setDate] = useState(todayISO());
+  const [focused, setFocused] = useState<string | null>(null);
 
   const [openingInput, setOpeningInput] = useState(String(openingBank));
 
@@ -88,23 +91,28 @@ export default function AddScreen() {
     Alert.alert("Saved", "Opening bank balance updated.");
   }
 
+  function inputStyle(key: string) {
+    return [styles.input, focused === key && styles.inputFocused];
+  }
+
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <Header />
+      <Header subtitle="New transaction" />
 
       <Card>
-        <Text style={styles.label}>WHAT HAPPENED?</Text>
-        <View style={styles.recipeList}>
+        <SectionLabel style={{ marginBottom: 12 }}>WHAT HAPPENED?</SectionLabel>
+        <View style={styles.optionList}>
           {RECIPES.map((r) => {
             const active = r.id === recipeId;
             return (
               <Pressable
                 key={r.id}
                 onPress={() => selectRecipe(r)}
-                style={[styles.recipeOption, active && styles.recipeOptionActive]}
+                style={[styles.option, active && styles.optionActive]}
               >
                 <View style={[styles.dot, { backgroundColor: r.dir === "in" ? C.green : C.red }]} />
-                <Text style={[styles.recipeLabel, active && { color: C.text }]}>{r.label}</Text>
+                <Text style={[styles.optionLabel, active && styles.optionLabelActive]}>{r.label}</Text>
+                {active ? <Check color={C.orange} size={17} strokeWidth={2.5} /> : null}
               </Pressable>
             );
           })}
@@ -113,19 +121,19 @@ export default function AddScreen() {
 
       {recipe.pick && (
         <Card>
-          <Text style={styles.label}>
+          <SectionLabel style={{ marginBottom: 12 }}>
             {recipe.pickTypes?.includes("income") ? "WHICH INCOME ACCOUNT?" : "WHICH EXPENSE ACCOUNT?"}
-          </Text>
-          <View style={styles.recipeList}>
+          </SectionLabel>
+          <View style={styles.chipWrap}>
             {pickOptions.map((a) => {
               const active = a.id === pickedAccountId;
               return (
                 <Pressable
                   key={a.id}
                   onPress={() => setPickedAccountId(a.id)}
-                  style={[styles.recipeOption, active && styles.recipeOptionActive]}
+                  style={[styles.chip, active && styles.chipActive]}
                 >
-                  <Text style={[styles.recipeLabel, active && { color: C.text }]}>{a.name}</Text>
+                  <Text style={[styles.chipLabel, active && styles.chipLabelActive]}>{a.name}</Text>
                 </Pressable>
               );
             })}
@@ -134,54 +142,58 @@ export default function AddScreen() {
       )}
 
       <Card>
-        <Text style={styles.label}>AMOUNT (ZAR)</Text>
+        <SectionLabel style={{ marginBottom: 10 }}>AMOUNT (ZAR)</SectionLabel>
         <TextInput
           value={amount}
           onChangeText={setAmount}
+          onFocus={() => setFocused("amount")}
+          onBlur={() => setFocused(null)}
           placeholder="0.00"
           placeholderTextColor={C.mute}
           keyboardType="decimal-pad"
-          style={styles.input}
+          style={[...inputStyle("amount"), styles.amountInput]}
         />
 
-        <Text style={[styles.label, { marginTop: 16 }]}>DESCRIPTION</Text>
+        <SectionLabel style={{ marginTop: 16, marginBottom: 10 }}>DESCRIPTION</SectionLabel>
         <TextInput
           value={desc}
           onChangeText={setDesc}
+          onFocus={() => setFocused("desc")}
+          onBlur={() => setFocused(null)}
           placeholder="e.g. Antminer S21 sale to J. Smit"
           placeholderTextColor={C.mute}
-          style={styles.input}
+          style={inputStyle("desc")}
         />
 
-        <Text style={[styles.label, { marginTop: 16 }]}>DATE (YYYY-MM-DD)</Text>
+        <SectionLabel style={{ marginTop: 16, marginBottom: 10 }}>DATE (YYYY-MM-DD)</SectionLabel>
         <TextInput
           value={date}
           onChangeText={setDate}
+          onFocus={() => setFocused("date")}
+          onBlur={() => setFocused(null)}
           placeholder={todayISO()}
           placeholderTextColor={C.mute}
-          style={styles.input}
+          style={inputStyle("date")}
         />
       </Card>
 
-      <Pressable style={styles.saveButton} onPress={handleSave}>
-        <Text style={styles.saveButtonText}>Save transaction</Text>
-      </Pressable>
+      <PrimaryButton label="Save transaction" onPress={handleSave} />
 
       <Card>
-        <Text style={styles.label}>OPENING BANK BALANCE</Text>
-        <Text style={styles.muted}>Set this once — it seeds the FNB Bank Account before any transactions.</Text>
+        <SectionLabel style={{ marginBottom: 8 }}>OPENING BANK BALANCE</SectionLabel>
+        <Text style={styles.muted}>Set once — seeds the FNB Bank Account before any transactions.</Text>
         <TextInput
           value={openingInput}
           onChangeText={setOpeningInput}
+          onFocus={() => setFocused("opening")}
+          onBlur={() => setFocused(null)}
           placeholder="0.00"
           placeholderTextColor={C.mute}
           keyboardType="decimal-pad"
-          style={[styles.input, { marginTop: 12 }]}
+          style={[...inputStyle("opening"), { marginTop: 12 }]}
         />
         <Text style={styles.currentValue}>Current: {fmt(openingBank)}</Text>
-        <Pressable style={styles.secondaryButton} onPress={handleSaveOpening}>
-          <Text style={styles.secondaryButtonText}>Save opening balance</Text>
-        </Pressable>
+        <GhostButton label="Save opening balance" onPress={handleSaveOpening} style={{ marginTop: 14 }} />
       </Card>
     </ScrollView>
   );
@@ -189,72 +201,54 @@ export default function AddScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.bg },
-  content: { padding: 16, paddingBottom: 60, gap: 14 },
-  label: {
-    color: C.mute,
-    fontFamily: FONT_DISPLAY_BOLD,
-    fontSize: 12,
-    letterSpacing: 1.5,
-    marginBottom: 10,
-  },
-  muted: { color: C.mute, fontFamily: FONT_DISPLAY, fontSize: 13 },
-  recipeList: { gap: 8 },
-  recipeOption: {
+  content: { padding: 16, paddingBottom: 64, gap: 14 },
+  muted: { color: C.mute, fontFamily: FONT_DISPLAY, fontSize: 13, lineHeight: 18 },
+  optionList: { gap: 8 },
+  option: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    paddingVertical: 12,
+    paddingVertical: 13,
     paddingHorizontal: 14,
-    borderRadius: 10,
+    borderRadius: R.sm + 2,
     backgroundColor: C.panel2,
     borderWidth: 1,
-    borderColor: C.line,
+    borderColor: C.lineSoft,
   },
-  recipeOptionActive: {
-    borderColor: C.orange,
+  optionActive: {
+    borderColor: "rgba(247,147,26,0.6)",
+    backgroundColor: "rgba(247,147,26,0.07)",
   },
+  optionLabel: { flex: 1, color: C.mute, fontFamily: FONT_DISPLAY, fontSize: 15 },
+  optionLabelActive: { color: C.text },
   dot: { width: 8, height: 8, borderRadius: 4 },
-  recipeLabel: { color: C.mute, fontFamily: FONT_DISPLAY, fontSize: 15 },
+  chipWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  chip: {
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+    borderRadius: R.pill,
+    backgroundColor: C.panel2,
+    borderWidth: 1,
+    borderColor: C.lineSoft,
+  },
+  chipActive: {
+    borderColor: "rgba(247,147,26,0.6)",
+    backgroundColor: "rgba(247,147,26,0.1)",
+  },
+  chipLabel: { color: C.mute, fontFamily: FONT_DISPLAY, fontSize: 14 },
+  chipLabelActive: { color: C.orange },
   input: {
     backgroundColor: C.panel2,
-    borderRadius: 10,
+    borderRadius: R.sm + 2,
     borderWidth: 1,
-    borderColor: C.line,
+    borderColor: C.lineSoft,
     color: C.text,
     fontFamily: FONT_MONO,
     fontSize: 16,
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
-  saveButton: {
-    backgroundColor: C.orange,
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: "center",
-  },
-  saveButtonText: {
-    color: C.bg,
-    fontFamily: FONT_DISPLAY_BOLD,
-    fontSize: 17,
-    letterSpacing: 0.5,
-  },
-  currentValue: {
-    color: C.text,
-    fontFamily: FONT_MONO,
-    fontSize: 14,
-    marginTop: 10,
-  },
-  secondaryButton: {
-    marginTop: 14,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: C.orange,
-    paddingVertical: 12,
-    alignItems: "center",
-  },
-  secondaryButtonText: {
-    color: C.orange,
-    fontFamily: FONT_DISPLAY_BOLD,
-    fontSize: 14,
-  },
+  inputFocused: { borderColor: C.orangeFaint },
+  amountInput: { fontSize: 24, paddingVertical: 14 },
+  currentValue: { color: C.text, fontFamily: FONT_MONO, fontSize: 13, marginTop: 10 },
 });

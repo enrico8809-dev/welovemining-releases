@@ -1,4 +1,4 @@
-name: WLM Accounting — Android APK (EAS Build)
+name: WLM Accounting — Android APK
 
 on:
   push:
@@ -7,15 +7,9 @@ on:
       - "wlm-accounting/**"
       - ".github/workflows/wlm-accounting-build.yml"
   workflow_dispatch:
-    inputs:
-      profile:
-        description: "EAS build profile"
-        required: false
-        default: "preview"
-        type: choice
-        options:
-          - preview
-          - production
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -23,6 +17,7 @@ jobs:
     defaults:
       run:
         working-directory: wlm-accounting
+
     steps:
       - uses: actions/checkout@v4
 
@@ -32,14 +27,74 @@ jobs:
           cache: npm
           cache-dependency-path: wlm-accounting/package-lock.json
 
-      - name: Install dependencies
+      - name: Install JS dependencies
         run: npm ci
 
-      - name: Set up EAS
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Generate native Android project
+        run: npx expo prebuild --platform android --no-install
+        env:
+          EXPO_NO_TELEMETRY: 1
 
-      - name: Build Android APK on EAS
-        run: eas build -p android --profile ${{ inputs.profile || 'preview' }} --non-interactive --no-wait=false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Generate a one-time release keystore
+        working-directory: wlm-accounting/android
+        run: |
+          keytool -genkey -v \
+            -keystore release.keystore \
+            -alias wlm \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass wlmaccounting \
+            -keypass wlmaccounting \
+            -dname "CN=WeLoveMining, OU=App, O=WeLoveMining, L=Johannesburg, S=GP, C=ZA"
+
+      - name: Inject signing config into Gradle
+        working-directory: wlm-accounting/android
+        run: |
+          cat >> app/build.gradle << 'GRADLE'
+
+          android.signingConfigs {
+            release {
+              storeFile file("../release.keystore")
+              storePassword "wlmaccounting"
+              keyAlias "wlm"
+              keyPassword "wlmaccounting"
+            }
+          }
+          android.buildTypes.release.signingConfig = android.signingConfigs.release
+          GRADLE
+
+      - name: Build release APK
+        working-directory: wlm-accounting/android
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Stage APK for release
+        run: cp android/app/build/outputs/apk/release/app-release.apk WLM-Accounting-latest.apk
+
+      - name: Publish Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: WLM Accounting (latest)
+          tag_name: accounting-latest
+          target_commitish: ${{ github.sha }}
+          body: |
+            **WLM Accounting** — Module 1 (double-entry ledger, P&L, trial balance).
+
+            Download `WLM-Accounting-latest.apk` on your phone and tap it to
+            install (allow "install from unknown sources" if prompted).
+          files: wlm-accounting/WLM-Accounting-latest.apk
+          fail_on_unmatched_files: true
+
+      - name: Upload APK artifact (manual runs)
+        if: github.event_name != 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: WLM-Accounting-${{ github.run_number }}.apk
+          path: wlm-accounting/android/app/build/outputs/apk/release/app-release.apk
+          retention-days: 30

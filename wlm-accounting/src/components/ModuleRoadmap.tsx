@@ -2,7 +2,8 @@ import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { ChevronRight } from "lucide-react-native";
 import Card from "./Card";
-import { C, FONT_DISPLAY, FONT_DISPLAY_BOLD, FONT_MONO } from "../lib/theme";
+import { SectionLabel } from "./ui";
+import { C, FONT_DISPLAY, FONT_MONO, R } from "../lib/theme";
 import { ComingSoonRoute } from "../navigation/routes";
 
 const MODULES: { number: number; title: string; route: ComingSoonRoute }[] = [
@@ -20,15 +21,21 @@ interface ModuleRoadmapProps {
 export default function ModuleRoadmap({ onOpen }: ModuleRoadmapProps) {
   return (
     <Card>
-      <Text style={styles.label}>ROADMAP</Text>
-      {MODULES.map((m) => (
-        <Pressable key={m.route} style={styles.row} onPress={() => onOpen(m.route)}>
+      <SectionLabel style={{ marginBottom: 12 }}>ROADMAP</SectionLabel>
+      {MODULES.map((m, i) => (
+        <Pressable
+          key={m.route}
+          style={({ pressed }) => [styles.row, i < MODULES.length - 1 && styles.rowBorder, pressed && { opacity: 0.6 }]}
+          onPress={() => onOpen(m.route)}
+        >
           <View style={styles.tag}>
             <Text style={styles.tagText}>{m.number}</Text>
           </View>
           <Text style={styles.title}>{m.title}</Text>
-          <Text style={styles.soon}>Coming soon</Text>
-          <ChevronRight color={C.mute} size={18} />
+          <View style={styles.soonPill}>
+            <Text style={styles.soon}>SOON</Text>
+          </View>
+          <ChevronRight color={C.mute} size={17} />
         </Pressable>
       ))}
     </Card>
@@ -36,30 +43,30 @@ export default function ModuleRoadmap({ onOpen }: ModuleRoadmapProps) {
 }
 
 const styles = StyleSheet.create({
-  label: {
-    color: C.mute,
-    fontFamily: FONT_DISPLAY_BOLD,
-    fontSize: 12,
-    letterSpacing: 1.5,
-    marginBottom: 12,
-  },
   row: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    paddingVertical: 10,
+    gap: 12,
+    paddingVertical: 12,
   },
+  rowBorder: { borderBottomWidth: 1, borderBottomColor: C.lineSoft },
   tag: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
+    width: 26,
+    height: 26,
+    borderRadius: 8,
     backgroundColor: C.panel2,
     borderWidth: 1,
-    borderColor: C.line,
+    borderColor: C.lineSoft,
     alignItems: "center",
     justifyContent: "center",
   },
-  tagText: { color: C.mute, fontFamily: FONT_MONO, fontSize: 12 },
+  tagText: { color: C.orange, fontFamily: FONT_MONO, fontSize: 12 },
   title: { flex: 1, color: C.text, fontFamily: FONT_DISPLAY, fontSize: 15 },
-  soon: { color: C.mute, fontFamily: FONT_MONO, fontSize: 11 },
+  soonPill: {
+    backgroundColor: C.panel2,
+    borderRadius: R.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  soon: { color: C.mute, fontFamily: FONT_MONO, fontSize: 9, letterSpacing: 1 },
 });

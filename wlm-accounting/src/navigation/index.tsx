@@ -1,8 +1,9 @@
 import React from "react";
+import { Pressable, StyleSheet, View } from "react-native";
 import { NavigationContainer, DarkTheme, Theme } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { Home, BookOpen, PlusCircle, BarChart3 } from "lucide-react-native";
+import { Home, BookOpen, Plus, BarChart3 } from "lucide-react-native";
 import HomeScreen from "../screens/HomeScreen";
 import LedgerScreen from "../screens/LedgerScreen";
 import AddScreen from "../screens/AddScreen";
@@ -15,7 +16,7 @@ import {
   ReconciliationScreen,
 } from "../screens/comingsoon/screens";
 import { RootStackParamList, TabParamList } from "./routes";
-import { C, FONT_DISPLAY } from "../lib/theme";
+import { C, FONT_DISPLAY_BOLD, SHADOW } from "../lib/theme";
 
 const Tab = createBottomTabNavigator<TabParamList>();
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -32,15 +33,38 @@ const navTheme: Theme = {
   },
 };
 
+/** Raised circular Add button in the middle of the tab bar. */
+function AddTabButton(props: any) {
+  return (
+    <Pressable
+      onPress={props.onPress}
+      accessibilityRole="button"
+      accessibilityLabel="Add transaction"
+      style={styles.fabWrap}
+    >
+      <View style={styles.fab}>
+        <Plus color={C.ink} size={28} strokeWidth={2.6} />
+      </View>
+    </Pressable>
+  );
+}
+
 function Tabs() {
   return (
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
-        tabBarStyle: { backgroundColor: C.panel, borderTopColor: C.line },
+        tabBarStyle: {
+          backgroundColor: C.panel,
+          borderTopColor: C.line,
+          borderTopWidth: 1,
+          height: 64,
+          paddingTop: 6,
+          paddingBottom: 8,
+        },
         tabBarActiveTintColor: C.orange,
         tabBarInactiveTintColor: C.mute,
-        tabBarLabelStyle: { fontFamily: FONT_DISPLAY, fontSize: 12 },
+        tabBarLabelStyle: { fontFamily: FONT_DISPLAY_BOLD, fontSize: 11, letterSpacing: 0.5 },
       }}
     >
       <Tab.Screen
@@ -56,7 +80,11 @@ function Tabs() {
       <Tab.Screen
         name="Add"
         component={AddScreen}
-        options={{ tabBarIcon: ({ color, size }) => <PlusCircle color={color} size={size} /> }}
+        options={{
+          tabBarLabel: () => null,
+          tabBarIcon: () => null,
+          tabBarButton: (props) => <AddTabButton {...props} />,
+        }}
       />
       <Tab.Screen
         name="Reports"
@@ -81,3 +109,23 @@ export default function RootNavigator() {
     </NavigationContainer>
   );
 }
+
+const styles = StyleSheet.create({
+  fabWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  fab: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    marginTop: -26,
+    backgroundColor: C.orange,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 4,
+    borderColor: C.bg,
+    ...SHADOW,
+  },
+});
