@@ -1,19 +1,54 @@
 import React from "react";
-import { Image, StyleSheet, Text, View } from "react-native";
-import { C, FONT_DISPLAY_BOLD, FONT_MONO } from "../lib/theme";
+import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ChevronLeft } from "lucide-react-native";
+import { C, R, S, T } from "../lib/theme";
+import * as haptics from "../lib/haptics";
 
 const WLM_MARK = require("../assets/wlm-mark.png");
 
-export default function Header() {
+interface HeaderProps {
+  /** Replaces the brand lockup with a title + back button on pushed screens. */
+  title?: string;
+  subtitle?: string;
+  onBack?: () => void;
+  action?: React.ReactNode;
+}
+
+export default function Header({ title, subtitle, onBack, action }: HeaderProps) {
+  const insets = useSafeAreaInsets();
+
   return (
-    <View style={styles.row}>
-      <View style={styles.badge}>
-        <Image source={WLM_MARK} style={styles.mark} resizeMode="contain" />
+    <View style={[styles.row, { paddingTop: insets.top + S.sm }]}>
+      {onBack ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          hitSlop={12}
+          onPress={() => {
+            haptics.tap();
+            onBack();
+          }}
+          style={styles.back}
+        >
+          <ChevronLeft color={C.text} size={22} />
+        </Pressable>
+      ) : (
+        <View style={styles.badge}>
+          <Image source={WLM_MARK} style={styles.mark} resizeMode="contain" />
+        </View>
+      )}
+
+      <View style={styles.titles}>
+        <Text style={styles.title} numberOfLines={1}>
+          {title ?? "WLM ACCOUNTING"}
+        </Text>
+        <Text style={styles.subtitle} numberOfLines={1}>
+          {subtitle ?? "WeLoveMining Pty Ltd"}
+        </Text>
       </View>
-      <View>
-        <Text style={styles.title}>WLM ACCOUNTING</Text>
-        <Text style={styles.subtitle}>WeLoveMining Pty Ltd</Text>
-      </View>
+
+      {action}
     </View>
   );
 }
@@ -22,15 +57,14 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 16,
-    gap: 12,
+    paddingHorizontal: S.lg,
+    paddingBottom: S.lg,
+    gap: S.md,
   },
   badge: {
     width: 40,
     height: 40,
-    borderRadius: 10,
+    borderRadius: R.md,
     backgroundColor: C.panel2,
     borderWidth: 1,
     borderColor: C.line,
@@ -38,19 +72,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     overflow: "hidden",
   },
-  mark: {
-    width: 30,
-    height: 30,
+  back: {
+    width: 40,
+    height: 40,
+    borderRadius: R.md,
+    backgroundColor: C.panel2,
+    borderWidth: 1,
+    borderColor: C.line,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  title: {
-    color: C.text,
-    fontFamily: FONT_DISPLAY_BOLD,
-    fontSize: 20,
-    letterSpacing: 1,
-  },
-  subtitle: {
-    color: C.mute,
-    fontFamily: FONT_MONO,
-    fontSize: 12,
-  },
+  mark: { width: 30, height: 30 },
+  titles: { flex: 1 },
+  title: { ...T.title, color: C.text },
+  subtitle: { ...T.caption, color: C.mute, marginTop: 1 },
 });
