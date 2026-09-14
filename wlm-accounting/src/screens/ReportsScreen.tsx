@@ -1,10 +1,18 @@
 import React, { useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
-import { CheckCircle2, ChevronRight, AlertTriangle } from "lucide-react-native";
+import { CheckCircle2, ChevronRight, AlertTriangle, Share2 } from "lucide-react-native";
 import Header from "../components/Header";
 import Card from "../components/Card";
+import Button from "../components/Button";
 import SegmentedControl from "../components/SegmentedControl";
+import { useToast } from "../components/Toast";
+import {
+  buildReportHtml,
+  profitAndLossHtml,
+  sharePdf,
+  trialBalanceHtml,
+} from "../lib/pdf";
 import { useLedger } from "../lib/LedgerContext";
 import {
   Account,
@@ -20,8 +28,10 @@ import { TabScreenNavigation } from "../navigation/routes";
 
 export default function ReportsScreen() {
   const nav = useNavigation<TabScreenNavigation<"Reports">>();
+  const toast = useToast();
   const { accounts, txns, openingBank, settings } = useLedger();
   const [periodId, setPeriodId] = useState<PeriodId>("ytd");
+  const [sharing, setSharing] = useState<"pnl" | "tb" | null>(null);
 
   const period = useMemo(
     () => buildPeriod(periodId, settings.fyStartMonth),
@@ -43,6 +53,40 @@ export default function ReportsScreen() {
 
   const openAccount = (account: Account) =>
     nav.navigate("AccountDetail", { accountId: account.id });
+
+  const exportPnl = async () => {
+    setSharing("pnl");
+    try {
+      const html = buildReportHtml(
+        "Profit & Loss",
+        describePeriod(period),
+        settings,
+        profitAndLossHtml(pnl)
+      );
+      await sharePdf(html, "profit-and-loss.pdf");
+    } catch {
+      toast.show("Couldn't generate the PDF", "error");
+    } finally {
+      setSharing(null);
+    }
+  };
+
+  const exportTrialBalance = async () => {
+    setSharing("tb");
+    try {
+      const html = buildReportHtml(
+        "Trial Balance",
+        "All time",
+        settings,
+        trialBalanceHtml(trial.rows, trial.totalDebit, trial.totalCredit)
+      );
+      await sharePdf(html, "trial-balance.pdf");
+    } catch {
+      toast.show("Couldn't generate the PDF", "error");
+    } finally {
+      setSharing(null);
+    }
+  };
 
   return (
     <ScrollView
@@ -84,6 +128,15 @@ export default function ReportsScreen() {
               {fmt(pnl.net)}
             </Text>
           </View>
+
+          <Button
+            label="Export as PDF"
+            variant="secondary"
+            onPress={exportPnl}
+            loading={sharing === "pnl"}
+            icon={<Share2 color={C.text} size={16} />}
+            style={{ marginTop: S.lg }}
+          />
         </Card>
 
         <Card
@@ -142,6 +195,15 @@ export default function ReportsScreen() {
             Every entry posts an equal debit and credit, so these two columns can never
             disagree.
           </Text>
+
+          <Button
+            label="Export as PDF"
+            variant="secondary"
+            onPress={exportTrialBalance}
+            loading={sharing === "tb"}
+            icon={<Share2 color={C.text} size={16} />}
+            style={{ marginTop: S.lg }}
+          />
         </Card>
       </View>
     </ScrollView>

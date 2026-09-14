@@ -37,8 +37,14 @@ export default function TabBar({ state, descriptors, navigation }: BottomTabBarP
     width: `${100 / count}%`,
   }));
 
+  // Android draws edge-to-edge, so the system nav/gesture bar sits on top of us.
+  // Reserve its full height plus a small buffer — on Samsung's gesture navigation
+  // the reported inset is short of where the gesture pill actually floats, which
+  // left the tab labels sitting underneath it.
+  const bottomInset = Math.max(insets.bottom, S.sm) + (insets.bottom > 0 ? S.sm : S.md);
+
   return (
-    <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, S.sm) }]}>
+    <View style={[styles.bar, { paddingBottom: bottomInset }]}>
       <Animated.View style={[styles.indicatorSlot, indicator]}>
         <View style={styles.indicator} />
       </Animated.View>

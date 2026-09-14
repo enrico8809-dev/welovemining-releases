@@ -51,18 +51,3 @@ export function ReconciliationScreen() {
   );
 }
 
-export function ExportScreen() {
-  return (
-    <ComingSoonScreen
-      moduleNumber={6}
-      title="PDF Export"
-      blurb="Hand your accountant or SARS a document that looks like it came from real accounting software."
-      planned={[
-        "Trial Balance and Profit & Loss as branded PDFs for any period.",
-        "Invoices and quotes as PDFs on WeLoveMining letterhead.",
-        "Share straight to email or WhatsApp via the system share sheet.",
-        "Built on expo-print and expo-sharing — no server involved.",
-      ]}
-    />
-  );
-}

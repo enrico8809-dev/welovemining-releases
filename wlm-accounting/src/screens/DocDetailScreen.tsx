@@ -1,8 +1,8 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { Alert, ScrollView, StyleSheet, Text, View } from "react-native";
 import { RouteProp, useNavigation, useRoute } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { ArrowRight, CheckCircle2 } from "lucide-react-native";
+import { ArrowRight, CheckCircle2, Share2 } from "lucide-react-native";
 import Header from "../components/Header";
 import Card from "../components/Card";
 import Button from "../components/Button";
@@ -17,6 +17,7 @@ import {
   lineTotal,
 } from "../lib/invoices";
 import { accountName } from "../lib/accounting";
+import { buildDocHtml, sharePdf } from "../lib/pdf";
 import { abs, fmt, fmtDate, todayISO } from "../lib/format";
 import { C, R, S, T } from "../lib/theme";
 import { RootStackParamList } from "../navigation/routes";
@@ -27,7 +28,8 @@ export default function DocDetailScreen() {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<DetailRoute>();
   const toast = useToast();
-  const { accounts, docs, saveDoc, removeDoc } = useLedger();
+  const { accounts, docs, saveDoc, removeDoc, settings } = useLedger();
+  const [sharing, setSharing] = useState(false);
 
   const doc = docs.find((d) => d.id === route.params.docId);
 
@@ -51,6 +53,17 @@ export default function DocDetailScreen() {
   const markPaid = () => {
     saveDoc({ ...doc, status: "paid", paidDate: todayISO() });
     toast.show("Marked paid — receivable cleared, no new income booked");
+  };
+
+  const sharePdfDoc = async () => {
+    setSharing(true);
+    try {
+      await sharePdf(buildDocHtml(doc, settings), `${doc.number}.pdf`);
+    } catch {
+      toast.show("Couldn't generate the PDF", "error");
+    } finally {
+      setSharing(false);
+    }
   };
 
   const convert = () => {
@@ -155,8 +168,16 @@ export default function DocDetailScreen() {
           )}
         </Card>
 
+        <Button
+          label={`Send ${isInvoice ? "invoice" : "quote"} as PDF`}
+          onPress={sharePdfDoc}
+          loading={sharing}
+          size="lg"
+          icon={<Share2 color={C.bg} size={18} />}
+        />
+
         {isInvoice && doc.status === "sent" && (
-          <Button label="Mark as paid" onPress={markPaid} size="lg" />
+          <Button label="Mark as paid" variant="secondary" onPress={markPaid} />
         )}
         {isInvoice && doc.status === "draft" && (
           <Button

@@ -11,7 +11,6 @@ export type RootStackParamList = {
   BankImport: undefined;
   Inventory: undefined;
   Reconciliation: undefined;
-  Export: undefined;
 };
 
 export type TabParamList = {
@@ -22,7 +21,7 @@ export type TabParamList = {
   Reports: undefined;
 };
 
-export type ComingSoonRoute = "BankImport" | "Inventory" | "Reconciliation" | "Export";
+export type ComingSoonRoute = "BankImport" | "Inventory" | "Reconciliation";
 
 /**
  * Tab screens sit inside the root stack, so they need to address both: sibling

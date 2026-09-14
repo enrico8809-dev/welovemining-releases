@@ -14,7 +14,6 @@ import DocEditorScreen from "../screens/DocEditorScreen";
 import DocDetailScreen from "../screens/DocDetailScreen";
 import {
   BankImportScreen,
-  ExportScreen,
   InventoryScreen,
   ReconciliationScreen,
 } from "../screens/comingsoon/screens";
@@ -65,7 +64,6 @@ export default function RootNavigator() {
         <Stack.Screen name="BankImport" component={BankImportScreen} />
         <Stack.Screen name="Inventory" component={InventoryScreen} />
         <Stack.Screen name="Reconciliation" component={ReconciliationScreen} />
-        <Stack.Screen name="Export" component={ExportScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

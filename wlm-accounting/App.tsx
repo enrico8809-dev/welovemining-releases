@@ -8,9 +8,12 @@ import { ShareTechMono_400Regular } from "@expo-google-fonts/share-tech-mono";
 import { LedgerProvider } from "./src/lib/LedgerContext";
 import { ToastProvider } from "./src/components/Toast";
 import RootNavigator from "./src/navigation";
+import { useSystemBars } from "./src/lib/systemBars";
 import { C } from "./src/lib/theme";
 
 export default function App() {
+  useSystemBars();
+
   const [fontsLoaded] = useFonts({
     Rajdhani_500Medium,
     Rajdhani_700Bold,
