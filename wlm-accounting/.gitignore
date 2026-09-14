@@ -39,3 +39,6 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Dependency versions are pinned exactly in package.json instead
+package-lock.json
