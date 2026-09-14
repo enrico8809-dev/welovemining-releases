@@ -18,22 +18,6 @@ export function BankImportScreen() {
   );
 }
 
-export function InventoryScreen() {
-  return (
-    <ComingSoonScreen
-      moduleNumber={4}
-      title="Inventory"
-      blurb="Track ASIC stock at true landed cost, so gross margin on each miner is real rather than a guess."
-      planned={[
-        "Product catalogue for the Antminer and Whatsminer ranges you resell.",
-        "Landed cost: supplier USD price converted to ZAR, plus shipping and clearing.",
-        "No customs duty on this electronics class; import VAT excluded while not VAT-registered.",
-        "Post cost of sales automatically when stock is sold against an invoice.",
-        "Show stock on hand and its carrying value on the dashboard.",
-      ]}
-    />
-  );
-}
 
 export function ReconciliationScreen() {
   return (

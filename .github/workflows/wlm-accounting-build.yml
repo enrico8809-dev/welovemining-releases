@@ -72,7 +72,20 @@ jobs:
 
       - name: Build release APK
         working-directory: wlm-accounting/android
-        run: ./gradlew assembleRelease --no-daemon
+        # The runner sometimes fetches a truncated Android NDK archive, which
+        # fails the whole build ~2 minutes in with "Archive is not a ZIP
+        # archive". Retrying costs a couple of minutes; losing a 25-minute
+        # build to a bad download costs a lot more.
+        run: |
+          for attempt in 1 2; do
+            if ./gradlew assembleRelease --no-daemon; then
+              exit 0
+            fi
+            echo "::warning::Gradle attempt $attempt failed; retrying once."
+            rm -rf "$ANDROID_SDK_ROOT/ndk/27.1.12297006" 2>/dev/null || true
+            sleep 15
+          done
+          exit 1
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

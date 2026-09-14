@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import { RouteProp, useNavigation, useRoute } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { Plus, Trash2 } from "lucide-react-native";
+import { Package, Plus, Trash2 } from "lucide-react-native";
 import Header from "../components/Header";
 import Card from "../components/Card";
 import Button from "../components/Button";
@@ -27,6 +27,8 @@ import {
   newDoc,
   newLineItem,
 } from "../lib/invoices";
+import { computeLandedCost, suggestedPrice } from "../lib/inventory";
+import { findProduct, productLabel } from "../lib/catalogue";
 import { fmt, parseAmount, toISO, todayISO } from "../lib/format";
 import { C, R, S, T } from "../lib/theme";
 import { RootStackParamList } from "../navigation/routes";
@@ -52,6 +54,35 @@ export default function DocEditorScreen() {
     () => accounts.filter((a) => a.type === "income"),
     [accounts]
   );
+
+  // Coming back from the catalogue: turn the picked product into a line at the
+  // suggested selling price, so a quote can be built straight off the price list.
+  useEffect(() => {
+    const pickedId = route.params?.pickedProductId;
+    if (!pickedId) return;
+    const product = findProduct(pickedId);
+    if (!product) return;
+
+    const cost = computeLandedCost(product, 1, settings.landedCost);
+    const price = Math.round(suggestedPrice(cost.perUnitZar, settings.targetMarginPct));
+
+    setDoc((d) => {
+      const blank = d.items.find((i) => !i.description && !i.unitPrice);
+      const line = {
+        ...(blank ?? newLineItem()),
+        description: productLabel(product),
+        qty: 1,
+        unitPrice: price,
+      };
+      return {
+        ...d,
+        items: blank
+          ? d.items.map((i) => (i.id === blank.id ? line : i))
+          : [...d.items, line],
+      };
+    });
+    nav.setParams({ pickedProductId: undefined });
+  }, [route.params?.pickedProductId, settings.landedCost, settings.targetMarginPct, nav]);
   const total = docTotal(doc);
   const isInvoice = doc.kind === "invoice";
 
@@ -189,11 +220,19 @@ export default function DocEditorScreen() {
             </View>
 
             <Button
-              label="Add line"
+              label="Pick from price list"
+              onPress={() =>
+                nav.navigate("Catalogue", { mode: "line-item", docId: doc.id })
+              }
+              icon={<Package color={C.bg} size={16} />}
+              style={{ marginTop: S.md }}
+            />
+            <Button
+              label="Add blank line"
               variant="secondary"
               onPress={addItem}
               icon={<Plus color={C.text} size={16} />}
-              style={{ marginTop: S.md }}
+              style={{ marginTop: S.sm }}
             />
           </Card>
 

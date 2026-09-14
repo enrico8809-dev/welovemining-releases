@@ -7,7 +7,7 @@ import Animated, {
   useDerivedValue,
   withSpring,
 } from "react-native-reanimated";
-import { BarChart3, BookOpen, FileText, Home, PlusCircle } from "lucide-react-native";
+import { BarChart3, BookOpen, Boxes, FileText, Home, PlusCircle } from "lucide-react-native";
 import { C, R, S, T } from "../lib/theme";
 import * as haptics from "../lib/haptics";
 
@@ -16,6 +16,7 @@ const ICONS: Record<string, React.ComponentType<{ color: string; size: number }>
   Ledger: BookOpen,
   Add: PlusCircle,
   Invoices: FileText,
+  Stock: Boxes,
   Reports: BarChart3,
 };
 
@@ -77,7 +78,7 @@ export default function TabBar({ state, descriptors, navigation }: BottomTabBarP
             style={styles.tab}
           >
             <View style={[styles.iconWrap, focused && styles.iconWrapOn]}>
-              <Icon color={focused ? C.orange : C.mute} size={21} />
+              <Icon color={focused ? C.orange : C.mute} size={19} />
             </View>
             <Text style={[styles.label, focused && styles.labelOn]}>{label}</Text>
           </Pressable>
@@ -101,7 +102,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   indicator: {
-    width: 28,
+    width: 24,
     height: 3,
     borderBottomLeftRadius: R.sm,
     borderBottomRightRadius: R.sm,

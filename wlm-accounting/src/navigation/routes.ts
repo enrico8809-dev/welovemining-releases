@@ -5,11 +5,12 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 export type RootStackParamList = {
   Tabs: undefined;
   AccountDetail: { accountId: string };
-  DocEditor: { docId?: string; kind: "invoice" | "quote" };
+  DocEditor: { docId?: string; kind: "invoice" | "quote"; pickedProductId?: string };
   DocDetail: { docId: string };
   Settings: undefined;
+  Catalogue: { mode?: "browse" | "stock-in" | "line-item"; docId?: string } | undefined;
+  ProductDetail: { productId: string; mode?: "stock-in" | "line-item"; docId?: string };
   BankImport: undefined;
-  Inventory: undefined;
   Reconciliation: undefined;
 };
 
@@ -18,10 +19,11 @@ export type TabParamList = {
   Ledger: undefined;
   Add: { editId?: string } | undefined;
   Invoices: undefined;
+  Stock: undefined;
   Reports: undefined;
 };
 
-export type ComingSoonRoute = "BankImport" | "Inventory" | "Reconciliation";
+export type ComingSoonRoute = "BankImport" | "Reconciliation";
 
 /**
  * Tab screens sit inside the root stack, so they need to address both: sibling

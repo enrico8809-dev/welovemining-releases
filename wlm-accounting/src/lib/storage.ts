@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Txn } from "./accounting";
 import { BusinessDoc } from "./invoices";
+import { DEFAULT_LANDED_COST, LandedCostSettings, StockMovement } from "./inventory";
 import { DEFAULT_FY_START_MONTH } from "./period";
 
 const KEY = "wlm:ledger:v2";
@@ -20,6 +21,9 @@ export interface Settings {
   bank: BankDetails;
   fyStartMonth: number;
   defaultPaymentTermsDays: number;
+  landedCost: LandedCostSettings;
+  /** Target gross margin used to suggest selling prices. */
+  targetMarginPct: number;
   /** Shown at the foot of every invoice and quote. */
   invoiceFooter: string;
   quoteValidityDays: number;
@@ -38,6 +42,7 @@ export interface BankDetails {
 export interface Ledger {
   txns: Txn[];
   docs: BusinessDoc[];
+  movements: StockMovement[];
   openingBank: number;
   settings: Settings;
 }
@@ -64,6 +69,8 @@ export const DEFAULT_SETTINGS: Settings = {
   bank: DEFAULT_BANK,
   fyStartMonth: DEFAULT_FY_START_MONTH,
   defaultPaymentTermsDays: 14,
+  landedCost: DEFAULT_LANDED_COST,
+  targetMarginPct: 20,
   invoiceFooter: "Thank you for your business.",
   quoteValidityDays: 14,
 };
@@ -71,6 +78,7 @@ export const DEFAULT_SETTINGS: Settings = {
 export const EMPTY_LEDGER: Ledger = {
   txns: [],
   docs: [],
+  movements: [],
   openingBank: 0,
   settings: DEFAULT_SETTINGS,
 };
@@ -81,6 +89,7 @@ export function normaliseLedger(parsed: unknown): Ledger {
   return {
     txns: Array.isArray(raw.txns) ? raw.txns : [],
     docs: Array.isArray(raw.docs) ? raw.docs : [],
+    movements: Array.isArray(raw.movements) ? raw.movements : [],
     openingBank: typeof raw.openingBank === "number" ? raw.openingBank : 0,
     // `bank` is nested, so a plain spread would drop its defaults when an older
     // backup has no bank block at all.
@@ -88,6 +97,14 @@ export function normaliseLedger(parsed: unknown): Ledger {
       ...DEFAULT_SETTINGS,
       ...(raw.settings ?? {}),
       bank: { ...DEFAULT_BANK, ...(raw.settings?.bank ?? {}) },
+      landedCost: {
+        ...DEFAULT_LANDED_COST,
+        ...(raw.settings?.landedCost ?? {}),
+        shippingTiers:
+          raw.settings?.landedCost?.shippingTiers?.length
+            ? raw.settings.landedCost.shippingTiers
+            : DEFAULT_LANDED_COST.shippingTiers,
+      },
     },
   };
 }

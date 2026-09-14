@@ -8,15 +8,14 @@ import LedgerScreen from "../screens/LedgerScreen";
 import AddScreen from "../screens/AddScreen";
 import InvoicesScreen from "../screens/InvoicesScreen";
 import ReportsScreen from "../screens/ReportsScreen";
+import StockScreen from "../screens/StockScreen";
+import CatalogueScreen from "../screens/CatalogueScreen";
+import ProductDetailScreen from "../screens/ProductDetailScreen";
 import SettingsScreen from "../screens/SettingsScreen";
 import AccountDetailScreen from "../screens/AccountDetailScreen";
 import DocEditorScreen from "../screens/DocEditorScreen";
 import DocDetailScreen from "../screens/DocDetailScreen";
-import {
-  BankImportScreen,
-  InventoryScreen,
-  ReconciliationScreen,
-} from "../screens/comingsoon/screens";
+import { BankImportScreen, ReconciliationScreen } from "../screens/comingsoon/screens";
 import { RootStackParamList, TabParamList } from "./routes";
 import { C } from "../lib/theme";
 
@@ -45,6 +44,7 @@ function Tabs() {
       <Tab.Screen name="Ledger" component={LedgerScreen} options={{ title: "Ledger" }} />
       <Tab.Screen name="Add" component={AddScreen} options={{ title: "Add" }} />
       <Tab.Screen name="Invoices" component={InvoicesScreen} options={{ title: "Invoices" }} />
+      <Tab.Screen name="Stock" component={StockScreen} options={{ title: "Stock" }} />
       <Tab.Screen name="Reports" component={ReportsScreen} options={{ title: "Reports" }} />
     </Tab.Navigator>
   );
@@ -61,8 +61,9 @@ export default function RootNavigator() {
         <Stack.Screen name="DocEditor" component={DocEditorScreen} />
         <Stack.Screen name="DocDetail" component={DocDetailScreen} />
         <Stack.Screen name="Settings" component={SettingsScreen} />
+        <Stack.Screen name="Catalogue" component={CatalogueScreen} />
+        <Stack.Screen name="ProductDetail" component={ProductDetailScreen} />
         <Stack.Screen name="BankImport" component={BankImportScreen} />
-        <Stack.Screen name="Inventory" component={InventoryScreen} />
         <Stack.Screen name="Reconciliation" component={ReconciliationScreen} />
       </Stack.Navigator>
     </NavigationContainer>

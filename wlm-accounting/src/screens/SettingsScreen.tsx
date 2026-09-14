@@ -11,14 +11,13 @@ import { useToast } from "../components/Toast";
 import { useLedger } from "../lib/LedgerContext";
 import { exportLedger, importLedger } from "../lib/backup";
 import { deleteCompanyLogo, pickCompanyLogo } from "../lib/logo";
-import { MONTHS } from "../lib/format";
+import { MONTHS, parseAmount } from "../lib/format";
 import { APP_VERSION } from "../lib/version";
 import { C, R, S, T } from "../lib/theme";
 import { RootStackParamList, ComingSoonRoute } from "../navigation/routes";
 
 const MODULES: { label: string; note: string; route: ComingSoonRoute }[] = [
   { label: "Bank Import", note: "FNB CSV & OFX", route: "BankImport" },
-  { label: "Inventory", note: "ASIC landed cost", route: "Inventory" },
   { label: "Reconciliation", note: "Match bank to ledger", route: "Reconciliation" },
 ];
 
@@ -292,7 +291,133 @@ export default function SettingsScreen() {
           />
         </Card>
 
-        <Card index={4} title="DATA">
+        <Card index={4} title="IMPORT & LANDED COST">
+          <Text style={styles.note}>
+            Sets what a miner really costs landed in Rand. No customs duty applies to this
+            class of electronics; import VAT is excluded while you're not VAT-registered.
+          </Text>
+          <Gap />
+          <Field
+            label="USD / ZAR RATE"
+            value={String(settings.landedCost.usdZarRate)}
+            onChangeText={(v) =>
+              updateSettings({
+                landedCost: { ...settings.landedCost, usdZarRate: parseAmount(v) || 0 },
+              })
+            }
+            keyboardType="decimal-pad"
+            mono
+          />
+          <Gap />
+
+          <Text style={styles.subLabel}>SHIPPING</Text>
+          {settings.landedCost.shippingTiers.map((tier, idx) => (
+            <View key={tier.upToQty} style={styles.tierRow}>
+              <View style={styles.tierQty}>
+                <Field
+                  label="UP TO QTY"
+                  value={String(tier.upToQty)}
+                  onChangeText={(v) => {
+                    const tiers = [...settings.landedCost.shippingTiers];
+                    tiers[idx] = { ...tier, upToQty: Number(v.replace(/[^0-9]/g, "")) || 1 };
+                    updateSettings({ landedCost: { ...settings.landedCost, shippingTiers: tiers } });
+                  }}
+                  keyboardType="number-pad"
+                  mono
+                />
+              </View>
+              <View style={styles.tierCost}>
+                <Field
+                  label="TOTAL USD"
+                  value={String(tier.totalUsd)}
+                  onChangeText={(v) => {
+                    const tiers = [...settings.landedCost.shippingTiers];
+                    tiers[idx] = { ...tier, totalUsd: parseAmount(v) || 0 };
+                    updateSettings({ landedCost: { ...settings.landedCost, shippingTiers: tiers } });
+                  }}
+                  keyboardType="decimal-pad"
+                  mono
+                />
+              </View>
+              {settings.landedCost.shippingTiers.length > 1 && (
+                <Pressable
+                  hitSlop={8}
+                  style={styles.tierRemove}
+                  onPress={() =>
+                    updateSettings({
+                      landedCost: {
+                        ...settings.landedCost,
+                        shippingTiers: settings.landedCost.shippingTiers.filter(
+                          (_, i) => i !== idx
+                        ),
+                      },
+                    })
+                  }
+                >
+                  <Trash2 color={C.mute} size={15} />
+                </Pressable>
+              )}
+            </View>
+          ))}
+          <Button
+            label="Add tier"
+            variant="secondary"
+            onPress={() => {
+              const tiers = settings.landedCost.shippingTiers;
+              const next = Math.max(...tiers.map((t) => t.upToQty)) + 1;
+              updateSettings({
+                landedCost: {
+                  ...settings.landedCost,
+                  shippingTiers: [...tiers, { upToQty: next, totalUsd: 0 }],
+                },
+              });
+            }}
+            style={{ marginTop: S.sm }}
+          />
+
+          <Gap />
+          <Field
+            label="EACH EXTRA UNIT BEYOND THE TABLE (USD)"
+            value={String(settings.landedCost.extraShippingPerUnitUsd)}
+            onChangeText={(v) =>
+              updateSettings({
+                landedCost: {
+                  ...settings.landedCost,
+                  extraShippingPerUnitUsd: parseAmount(v) || 0,
+                },
+              })
+            }
+            keyboardType="decimal-pad"
+            mono
+          />
+          <Gap />
+          <Field
+            label="CLEARING FEE PER SHIPMENT (ZAR)"
+            value={String(settings.landedCost.clearingZar)}
+            onChangeText={(v) =>
+              updateSettings({
+                landedCost: { ...settings.landedCost, clearingZar: parseAmount(v) || 0 },
+              })
+            }
+            keyboardType="decimal-pad"
+            mono
+          />
+          <Gap />
+          <Field
+            label="TARGET GROSS MARGIN (%)"
+            value={String(settings.targetMarginPct)}
+            onChangeText={(v) =>
+              updateSettings({ targetMarginPct: Number(v.replace(/[^0-9.]/g, "")) || 0 })
+            }
+            keyboardType="decimal-pad"
+            mono
+          />
+          <Text style={styles.note}>
+            Used to suggest selling prices from landed cost on the price list.
+          </Text>
+        </Card>
+
+        <Card index={5} title="DATA">
           <Text style={styles.statText}>
             {txns.length} transaction{txns.length === 1 ? "" : "s"} · {docs.length} document
             {docs.length === 1 ? "" : "s"}
@@ -318,7 +443,7 @@ export default function SettingsScreen() {
           </Text>
         </Card>
 
-        <Card index={5} title="MODULES IN PROGRESS">
+        <Card index={6} title="MODULES IN PROGRESS">
           {MODULES.map((m) => (
             <Pressable
               key={m.route}
@@ -335,7 +460,7 @@ export default function SettingsScreen() {
           ))}
         </Card>
 
-        <Card index={6} title="ABOUT">
+        <Card index={7} title="ABOUT">
           <Text style={styles.about}>
             WLM Accounting records every transaction once and categorises it once, using
             double-entry underneath. You pick what happened; the app books the debit and credit.
@@ -379,6 +504,11 @@ const styles = StyleSheet.create({
   settingNote: { ...T.caption, color: C.mute, marginTop: 2 },
   settingValue: { ...T.amount, color: C.orange },
   statText: { ...T.small, color: C.mute },
+  subLabel: { ...T.label, color: C.mute, marginBottom: S.sm },
+  tierRow: { flexDirection: "row", alignItems: "flex-end", gap: S.sm, marginBottom: S.sm },
+  tierQty: { width: 96 },
+  tierCost: { flex: 1 },
+  tierRemove: { paddingBottom: S.md + 2, paddingHorizontal: S.xs },
   note: { ...T.caption, color: C.mute, marginTop: S.md, lineHeight: 17 },
   moduleRow: {
     flexDirection: "row",
