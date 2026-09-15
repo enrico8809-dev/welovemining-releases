@@ -75,13 +75,17 @@ jobs:
 
       - name: Build release APK
         working-directory: wlm-accounting/android
+        # arm64-v8a only. React Native defaults to building all four ABIs into
+        # one APK, which tripled the download for slices no modern phone uses.
+        # The RN Gradle plugin feeds this property straight into ndk.abiFilters.
+        #
         # The runner sometimes fetches a truncated Android NDK archive, which
         # fails the whole build ~2 minutes in with "Archive is not a ZIP
         # archive". Retrying costs a couple of minutes; losing a 25-minute
         # build to a bad download costs a lot more.
         run: |
           for attempt in 1 2; do
-            if ./gradlew assembleRelease --no-daemon; then
+            if ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon; then
               exit 0
             fi
             echo "::warning::Gradle attempt $attempt failed; retrying once."
