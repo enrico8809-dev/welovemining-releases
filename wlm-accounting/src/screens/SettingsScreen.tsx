@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { ChevronRight, Download, ImagePlus, Trash2, Upload } from "lucide-react-native";
+import { Download, ImagePlus, Trash2, Upload } from "lucide-react-native";
 import Header from "../components/Header";
 import Card from "../components/Card";
 import Button from "../components/Button";
@@ -14,11 +14,7 @@ import { deleteCompanyLogo, pickCompanyLogo } from "../lib/logo";
 import { MONTHS, parseAmount } from "../lib/format";
 import { APP_VERSION } from "../lib/version";
 import { C, R, S, T } from "../lib/theme";
-import { RootStackParamList, ComingSoonRoute } from "../navigation/routes";
-
-const MODULES: { label: string; note: string; route: ComingSoonRoute }[] = [
-  { label: "Reconciliation", note: "Match bank to ledger", route: "Reconciliation" },
-];
+import { RootStackParamList } from "../navigation/routes";
 
 export default function SettingsScreen() {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -441,25 +437,7 @@ export default function SettingsScreen() {
             Everything lives on this phone only. Export regularly — a lost phone is a lost book.
           </Text>
         </Card>
-
-        <Card index={6} title="MODULES IN PROGRESS">
-          {MODULES.map((m) => (
-            <Pressable
-              key={m.route}
-              onPress={() => nav.navigate(m.route)}
-              style={({ pressed }) => [styles.moduleRow, pressed && styles.pressed]}
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={styles.moduleLabel}>{m.label}</Text>
-                <Text style={styles.moduleNote}>{m.note}</Text>
-              </View>
-              <Text style={styles.soon}>Soon</Text>
-              <ChevronRight color={C.mute} size={16} />
-            </Pressable>
-          ))}
-        </Card>
-
-        <Card index={7} title="ABOUT">
+        <Card index={6} title="ABOUT">
           <Text style={styles.about}>
             WLM Accounting records every transaction once and categorises it once, using
             double-entry underneath. You pick what happened; the app books the debit and credit.
@@ -509,17 +487,6 @@ const styles = StyleSheet.create({
   tierCost: { flex: 1 },
   tierRemove: { paddingBottom: S.md + 2, paddingHorizontal: S.xs },
   note: { ...T.caption, color: C.mute, marginTop: S.md, lineHeight: 17 },
-  moduleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: S.sm,
-    paddingVertical: S.md,
-    borderRadius: R.sm,
-  },
-  pressed: { backgroundColor: C.panel2 },
-  moduleLabel: { ...T.body, color: C.text },
-  moduleNote: { ...T.caption, color: C.mute, marginTop: 2 },
-  soon: { ...T.caption, color: C.amber },
   about: { ...T.small, color: C.textDim, lineHeight: 21 },
   version: { ...T.caption, color: C.mute, marginTop: S.md },
 });

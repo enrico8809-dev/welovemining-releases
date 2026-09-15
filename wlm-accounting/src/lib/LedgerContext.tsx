@@ -9,6 +9,7 @@ import React, {
 import { Account, SEED_ACCOUNTS, Txn, computeBalances } from "./accounting";
 import { BusinessDoc, postingsForDocs } from "./invoices";
 import { StockMovement, postingsForMovements } from "./inventory";
+import { Reconciliation } from "./reconcile";
 import { findProduct, productLabel } from "./catalogue";
 import { EMPTY_LEDGER, Ledger, Settings, loadLedger, saveLedger } from "./storage";
 
@@ -21,6 +22,7 @@ interface LedgerContextValue {
   txns: Txn[];
   docs: BusinessDoc[];
   movements: StockMovement[];
+  reconciliations: Reconciliation[];
   openingBank: number;
   settings: Settings;
   balances: Record<string, number>;
@@ -31,6 +33,8 @@ interface LedgerContextValue {
   removeDoc: (id: string) => Promise<void>;
   addMovement: (m: StockMovement) => Promise<void>;
   removeMovement: (id: string) => Promise<void>;
+  addReconciliation: (r: Reconciliation) => Promise<void>;
+  removeReconciliation: (id: string) => Promise<void>;
   setOpeningBank: (amount: number) => Promise<void>;
   updateSettings: (patch: Partial<Settings>) => Promise<void>;
   replaceLedger: (ledger: Ledger) => Promise<void>;
@@ -103,6 +107,21 @@ export function LedgerProvider({ children }: { children: React.ReactNode }) {
     [ledger, persist]
   );
 
+  const addReconciliation = useCallback(
+    (r: Reconciliation) =>
+      persist({ ...ledger, reconciliations: [r, ...ledger.reconciliations] }),
+    [ledger, persist]
+  );
+
+  const removeReconciliation = useCallback(
+    (id: string) =>
+      persist({
+        ...ledger,
+        reconciliations: ledger.reconciliations.filter((r) => r.id !== id),
+      }),
+    [ledger, persist]
+  );
+
   const setOpeningBank = useCallback(
     (amount: number) => persist({ ...ledger, openingBank: amount }),
     [ledger, persist]
@@ -144,6 +163,7 @@ export function LedgerProvider({ children }: { children: React.ReactNode }) {
       txns: allTxns,
       docs: ledger.docs,
       movements: ledger.movements,
+      reconciliations: ledger.reconciliations,
       openingBank: ledger.openingBank,
       settings: ledger.settings,
       balances,
@@ -154,6 +174,8 @@ export function LedgerProvider({ children }: { children: React.ReactNode }) {
       removeDoc,
       addMovement,
       removeMovement,
+      addReconciliation,
+      removeReconciliation,
       setOpeningBank,
       updateSettings,
       replaceLedger,
@@ -171,6 +193,8 @@ export function LedgerProvider({ children }: { children: React.ReactNode }) {
       removeDoc,
       addMovement,
       removeMovement,
+      addReconciliation,
+      removeReconciliation,
       setOpeningBank,
       updateSettings,
       replaceLedger,

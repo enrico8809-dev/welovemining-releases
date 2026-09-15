@@ -23,8 +23,6 @@ export type TabParamList = {
   Reports: undefined;
 };
 
-export type ComingSoonRoute = "Reconciliation";
-
 /**
  * Tab screens sit inside the root stack, so they need to address both: sibling
  * tabs by name, and pushed screens like DocDetail on the stack above them.

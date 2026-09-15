@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Txn } from "./accounting";
 import { BusinessDoc } from "./invoices";
 import { DEFAULT_LANDED_COST, LandedCostSettings, StockMovement } from "./inventory";
+import { Reconciliation } from "./reconcile";
 import { DEFAULT_FY_START_MONTH } from "./period";
 
 const KEY = "wlm:ledger:v2";
@@ -43,6 +44,7 @@ export interface Ledger {
   txns: Txn[];
   docs: BusinessDoc[];
   movements: StockMovement[];
+  reconciliations: Reconciliation[];
   openingBank: number;
   settings: Settings;
 }
@@ -79,6 +81,7 @@ export const EMPTY_LEDGER: Ledger = {
   txns: [],
   docs: [],
   movements: [],
+  reconciliations: [],
   openingBank: 0,
   settings: DEFAULT_SETTINGS,
 };
@@ -90,6 +93,7 @@ export function normaliseLedger(parsed: unknown): Ledger {
     txns: Array.isArray(raw.txns) ? raw.txns : [],
     docs: Array.isArray(raw.docs) ? raw.docs : [],
     movements: Array.isArray(raw.movements) ? raw.movements : [],
+    reconciliations: Array.isArray(raw.reconciliations) ? raw.reconciliations : [],
     openingBank: typeof raw.openingBank === "number" ? raw.openingBank : 0,
     // `bank` is nested, so a plain spread would drop its defaults when an older
     // backup has no bank block at all.

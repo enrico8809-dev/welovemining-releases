@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
-import { CheckCircle2, ChevronRight, AlertTriangle, Share2 } from "lucide-react-native";
+import { CheckCircle2, ChevronRight, AlertTriangle, Scale, Share2 } from "lucide-react-native";
 import Header from "../components/Header";
 import Card from "../components/Card";
 import Button from "../components/Button";
@@ -22,14 +22,15 @@ import {
   filterByPeriod,
 } from "../lib/accounting";
 import { PERIOD_OPTIONS, PeriodId, buildPeriod, describePeriod } from "../lib/period";
-import { abs, fmt } from "../lib/format";
+import { reconciledToDate } from "../lib/reconcile";
+import { abs, fmt, fmtDate } from "../lib/format";
 import { C, R, S, T } from "../lib/theme";
 import { TabScreenNavigation } from "../navigation/routes";
 
 export default function ReportsScreen() {
   const nav = useNavigation<TabScreenNavigation<"Reports">>();
   const toast = useToast();
-  const { accounts, txns, openingBank, settings } = useLedger();
+  const { accounts, txns, openingBank, settings, reconciliations } = useLedger();
   const [periodId, setPeriodId] = useState<PeriodId>("ytd");
   const [sharing, setSharing] = useState<"pnl" | "tb" | null>(null);
 
@@ -50,6 +51,8 @@ export default function ReportsScreen() {
     () => computeTrialBalance(accounts, computeBalances(accounts, txns, openingBank)),
     [accounts, txns, openingBank]
   );
+
+  const lastReconciled = reconciledToDate(reconciliations);
 
   const openAccount = (account: Account) =>
     nav.navigate("AccountDetail", { accountId: account.id });
@@ -205,6 +208,25 @@ export default function ReportsScreen() {
             style={{ marginTop: S.lg }}
           />
         </Card>
+
+        <Card index={2} title="BANK RECONCILIATION" onPress={() => nav.navigate("Reconciliation")}>
+          <View style={styles.recRow}>
+            <View style={[styles.recIcon, lastReconciled && { borderColor: C.green }]}>
+              <Scale color={lastReconciled ? C.green : C.mute} size={19} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.recTitle}>
+                {lastReconciled ? `Reconciled to ${fmtDate(lastReconciled)}` : "Not yet reconciled"}
+              </Text>
+              <Text style={styles.recNote}>
+                {lastReconciled
+                  ? "Load a newer statement to carry the proof forward."
+                  : "Match a bank statement against the books to prove they agree."}
+              </Text>
+            </View>
+            <ChevronRight color={C.mute} size={16} />
+          </View>
+        </Card>
       </View>
     </ScrollView>
   );
@@ -317,4 +339,16 @@ const styles = StyleSheet.create({
   tbTotalText: { color: C.text },
   right: { textAlign: "right" },
   tbFoot: { ...T.caption, color: C.mute, marginTop: S.md, lineHeight: 16 },
+  recRow: { flexDirection: "row", alignItems: "center", gap: S.md },
+  recIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: R.pill,
+    borderWidth: 1,
+    borderColor: C.line,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  recTitle: { ...T.bodyBold, color: C.text },
+  recNote: { ...T.caption, color: C.mute, marginTop: 3, lineHeight: 15 },
 });
