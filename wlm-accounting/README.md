@@ -46,8 +46,18 @@ trail showing precisely what hit the books.
 **Reports** — period-filtered P&L with drill-down into any account, plus an all-time
 Trial Balance that reports whether it balances.
 
-**Settings** — company details, financial-year start, and JSON backup/restore through
-the system share sheet.
+**Stock** — the supplier price lists as a searchable catalogue, landed cost in Rand
+(goods + tiered shipping + clearing at your USD/ZAR rate), stock on hand at
+weighted-average cost, and stock in/sold/written-off posting real entries.
+
+**Bank import** — FNB CSV or OFX, every line shown with a suggested category and the
+reason for it. Nothing posts until confirmed; anything already captured is flagged.
+
+**Reconciliation** — matches a statement against the books and shows what neither side
+agrees on, as a proper reconciliation statement.
+
+**Settings** — logo, company and bank details, financial-year start, landed-cost inputs,
+and JSON backup/restore through the system share sheet.
 
 ## Project layout
 
@@ -60,14 +70,19 @@ wlm-accounting/
     lib/
       accounting.ts        — chart of accounts, recipes, balance engine, derived series
       invoices.ts          — documents, numbering, and the posting rules
+      inventory.ts         — landed cost, stock levels, stock postings
+      catalogue.ts         — supplier price lists (LeedMiner, Letine)
+      bankImport.ts        — FNB CSV/OFX parsing, categorisation, duplicate detection
+      reconcile.ts         — statement matching and the reconciliation statement
+      pdf.ts               — branded PDF templates
       period.ts            — MTD / last month / financial year / all time
       storage.ts           — AsyncStorage persistence + v1 migration
       backup.ts            — JSON export & restore
       theme.ts             — colour, spacing, type, elevation and chart tokens
       LedgerContext.tsx    — state wiring; invoice postings are derived here
-      __tests__/           — 38 tests over the engine and the invoice rules
+      __tests__/           — 140 tests over the engine and every module's rules
     components/            — charts, inputs, toasts, tab bar, skeletons
-    navigation/            — tabs (Home · Ledger · Add · Invoices · Reports) + stack
+    navigation/            — tabs (Home · Ledger · Add · Invoices · Stock · Reports) + stack
     screens/               — one file per screen
 ```
 
@@ -76,7 +91,7 @@ wlm-accounting/
 ```bash
 cd wlm-accounting
 npm install
-npm test          # 38 engine tests
+npm test          # 140 tests
 npm run typecheck
 npx expo start    # then scan the QR with Expo Go
 ```
@@ -95,13 +110,33 @@ at the bottom of the run and download `WLM-Accounting-<run>.apk`.
 
 On the phone: open the file, allow "install from unknown sources", install.
 
-## Module roadmap
+## Modules
 
-1. **(built)** Ledger, dashboard, reports, persistence
-2. Bank import — FNB CSV / OFX, categorise before posting
-3. **(built)** Invoices & Quotes
-4. Inventory — ASIC catalogue with landed cost
-5. Reconciliation — match bank lines to ledger entries
-6. PDF export — trial balance, P&L, invoices
+All six are built.
 
-Modules 2, 4, 5 and 6 are reachable from Settings and describe what they'll do.
+| # | Module | What it does |
+|---|---|---|
+| 1 | Ledger & Reports | Dashboard, ledger, double-entry capture, P&L, trial balance |
+| 2 | Bank Import | FNB CSV and OFX, categorised line by line before anything posts |
+| 3 | Invoices & Quotes | `INV-XXXX` / `QUO-XXXX`, draft to paid, branded PDFs |
+| 4 | Inventory | ASIC catalogue, landed cost, stock in/out at weighted-average cost |
+| 5 | Reconciliation | Match statement lines to the books, explain every difference |
+| 6 | PDF Export | Invoices, quotes, P&L and trial balance on your letterhead |
+
+## What stops the double-counting
+
+Three separate guards, each with tests behind it:
+
+- **Invoices** recognise revenue once, when issued. Marking one paid clears the
+  receivable and never touches an income account.
+- **Bank import** flags any line matching an existing entry on date, amount and
+  direction, leaves it unticked, and keeps it unticked even on "select all".
+  Imported entries carry deterministic ids, so the same statement line can't
+  land twice.
+- **Reconciliation** shows what the bank has that the books don't, and vice
+  versa, so a gap surfaces instead of being quietly absorbed.
+
+## Still to come
+
+Cloud sync and user accounts, served through a Cloudflare Tunnel alongside the
+CRM — so the data stays on WeLoveMining hardware rather than a third party's.
