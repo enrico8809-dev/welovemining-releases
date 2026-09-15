@@ -28,7 +28,7 @@ import za.co.welovemining.asicmanager.ui.theme.WlmOrange
 fun BrandMark(modifier: Modifier = Modifier, markSizeDp: Int = 34) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier) {
         Image(
-            painter = painterResource(R.drawable.ic_launcher_foreground),
+            painter = painterResource(R.mipmap.ic_wlm_logo),
             contentDescription = "WeLoveMining",
             modifier = Modifier.size(markSizeDp.dp),
         )

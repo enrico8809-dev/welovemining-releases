@@ -65,10 +65,8 @@ class FleetViewModel(
         }
     }
 
-    private fun currentMiners(s: AppSettings): List<Miner> {
-        val persisted = configuredMiners.value
-        return if (s.demoMode || persisted.isEmpty()) MockData.miners else persisted
-    }
+    private fun currentMiners(s: AppSettings): List<Miner> =
+        if (s.demoMode) MockData.miners else configuredMiners.value
 
     private suspend fun poll(s: AppSettings, miners: List<Miner>, tick: Long) {
         val result = runCatching { repository.pollFleet(s, miners, tick) }.getOrElse {
@@ -95,7 +93,10 @@ class FleetViewModel(
 
     fun refresh() = viewModelScope.launch {
         val s = settings.value
-        poll(s, currentMiners(s), System.currentTimeMillis() / 1000)
+        // Read the freshly persisted list (not the cached flow value) so an
+        // add/delete is reflected immediately rather than on the next poll tick.
+        val miners = if (s.demoMode) MockData.miners else settingsStore.minersSnapshot()
+        poll(s, miners, System.currentTimeMillis() / 1000)
     }
 
     fun reboot(minerId: String) = viewModelScope.launch {
@@ -110,6 +111,42 @@ class FleetViewModel(
 
     fun itemFor(minerId: String): MinerWithStats? =
         _state.value.items.firstOrNull { it.miner.id == minerId }
+
+    // --- fleet configuration (add / edit / delete) -------------------------
+
+    fun configuredMinerFor(minerId: String): Miner? =
+        configuredMiners.value.firstOrNull { it.id == minerId }
+
+    /** Insert a new miner or replace the existing one with the same id. */
+    fun saveMiner(miner: Miner) = viewModelScope.launch {
+        var isNew = false
+        settingsStore.updateMiners { current ->
+            isNew = current.none { it.id == miner.id }
+            if (isNew) current + miner else current.map { if (it.id == miner.id) miner else it }
+        }
+        // Configuring a real miner means we're no longer browsing the demo fleet.
+        if (isNew) settingsStore.updateSettings { it.copy(demoMode = false) }
+        refresh()
+    }
+
+    fun deleteMiner(minerId: String) = viewModelScope.launch {
+        settingsStore.updateMiners { current -> current.filterNot { it.id == minerId } }
+        refresh()
+    }
+
+    /** Merge discovered miners into the fleet, skipping hosts already present. */
+    fun addDiscovered(miners: List<Miner>) = viewModelScope.launch {
+        var added = false
+        settingsStore.updateMiners { current ->
+            val existingHosts = current.map { it.lanHost }.toSet()
+            val additions = miners.filterNot { it.lanHost in existingHosts }
+            added = additions.isNotEmpty()
+            current + additions
+        }
+        // Adding real hardware implies leaving the demo fleet.
+        if (added) settingsStore.updateSettings { it.copy(demoMode = false) }
+        refresh()
+    }
 
     companion object {
         fun factory(repository: MinerRepository, settingsStore: SettingsStore) =

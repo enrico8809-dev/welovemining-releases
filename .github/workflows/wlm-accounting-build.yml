@@ -8,6 +8,9 @@ on:
       - ".github/workflows/wlm-accounting-build.yml"
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -87,6 +90,31 @@ jobs:
           done
           exit 1
 
+      - name: Stage APK under a stable name
+        working-directory: wlm-accounting
+        run: cp android/app/build/outputs/apk/release/app-release.apk WLM-Accounting-latest.apk
+
+      # A release gives a permanent download link; artifacts expire after 30 days.
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: WLM Accounting (latest)
+          tag_name: accounting-latest
+          target_commitish: ${{ github.sha }}
+          body: |
+            **WLM Accounting** — double-entry books for WeLoveMining.
+
+            Ledger and reports · bank import (FNB CSV/OFX) · invoices and quotes ·
+            stock with landed cost · reconciliation · PDF export · optional cloud
+            sync over your own Cloudflare Tunnel.
+
+            Download `WLM-Accounting-latest.apk` on your phone and tap it to
+            install (allow "install from unknown sources" if prompted).
+          files: wlm-accounting/WLM-Accounting-latest.apk
+          fail_on_unmatched_files: true
+
+      # Also kept as an artifact, so a build can be fetched per-run when
+      # comparing two of them.
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:

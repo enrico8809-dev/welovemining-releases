@@ -17,6 +17,7 @@ class MainActivity : ComponentActivity() {
                 WlmApp(
                     repository = container.repository,
                     settingsStore = container.settingsStore,
+                    discovery = container.discovery,
                 )
             }
         }

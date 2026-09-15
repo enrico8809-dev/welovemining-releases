@@ -9,7 +9,10 @@ type Accent = "orange" | "green" | "red" | "none";
 interface CardProps {
   children: React.ReactNode;
   style?: StyleProp<ViewStyle>;
+  /** Tints the border and washes the surface — used for money-coded cards. */
   accent?: Accent;
+  /** Raised cards sit on the higher-elevation surface (hero panels). */
+  raised?: boolean;
   /** Section label rendered above the content. */
   title?: string;
   /** Optional control shown opposite the title. */
@@ -19,22 +22,33 @@ interface CardProps {
   index?: number;
 }
 
-const ACCENTS: Record<Accent, string> = {
-  orange: C.orange,
-  green: C.green,
-  red: C.red,
-  none: C.line,
+const BORDER: Record<Accent, string> = {
+  orange: C.orangeLine,
+  green: C.greenDim,
+  red: C.redDim,
+  none: C.lineSoft,
+};
+
+/** A wash, not a fill — the accent should read without shouting. */
+const WASH: Record<Accent, string | null> = {
+  orange: null,
+  green: "rgba(52,211,153,0.05)",
+  red: "rgba(248,113,113,0.05)",
+  none: null,
 };
 
 export default function Card({
   children,
   style,
   accent = "none",
+  raised = false,
   title,
   action,
   onPress,
   index = 0,
 }: CardProps) {
+  const backgroundColor = WASH[accent] ?? (raised ? C.panel3 : C.panel);
+
   const body = (
     <>
       {(title || action) && (
@@ -47,7 +61,7 @@ export default function Card({
     </>
   );
 
-  const cardStyle = [styles.card, { borderColor: ACCENTS[accent] }, style];
+  const cardStyle = [styles.card, { borderColor: BORDER[accent], backgroundColor }, style];
 
   return (
     <Animated.View entering={FadeInDown.delay(index * 60).duration(320)}>
@@ -70,7 +84,6 @@ export default function Card({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: C.panel,
     borderRadius: R.lg,
     borderWidth: 1,
     padding: S.lg,

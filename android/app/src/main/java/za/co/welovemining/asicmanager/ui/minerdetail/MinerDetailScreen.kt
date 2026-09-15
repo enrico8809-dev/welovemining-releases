@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Speed
@@ -71,6 +72,8 @@ fun MinerDetailScreen(
     onBack: () -> Unit,
     onReboot: () -> Unit,
     onLocate: (Boolean) -> Unit,
+    onEdit: (() -> Unit)? = null,
+    controllable: Boolean = true,
 ) {
     var confirmReboot by remember { mutableStateOf(false) }
     var locating by remember { mutableStateOf(false) }
@@ -83,6 +86,13 @@ fun MinerDetailScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    if (onEdit != null) {
+                        IconButton(onClick = onEdit) {
+                            Icon(Icons.Filled.Edit, contentDescription = "Edit")
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -120,22 +130,24 @@ fun MinerDetailScreen(
                         }
                         StatusPill(stats?.state ?: za.co.welovemining.asicmanager.data.model.MinerState.OFFLINE)
                     }
-                    Spacer(Modifier.height(10.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            onClick = { confirmReboot = true },
-                            colors = ButtonDefaults.buttonColors(containerColor = WlmOrange, contentColor = Color(0xFF1A1206)),
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Icon(Icons.Filled.RestartAlt, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp)); Text("Reboot")
-                        }
-                        OutlinedButton(
-                            onClick = { locating = !locating; onLocate(locating) },
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Icon(Icons.Filled.Lightbulb, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp)); Text(if (locating) "Locating…" else "Locate")
+                    if (controllable) {
+                        Spacer(Modifier.height(10.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = { confirmReboot = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = WlmOrange, contentColor = Color(0xFF1A1206)),
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Icon(Icons.Filled.RestartAlt, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp)); Text("Reboot")
+                            }
+                            OutlinedButton(
+                                onClick = { locating = !locating; onLocate(locating) },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Icon(Icons.Filled.Lightbulb, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp)); Text(if (locating) "Locating…" else "Locate")
+                            }
                         }
                     }
                 }

@@ -1,0 +1,14 @@
+{
+  "name": "wlm-gateway",
+  "version": "1.0.0",
+  "description": "WLM ASIC Manager site gateway — polls miners on the LAN and serves a unified API for the Android app over a Cloudflare tunnel.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "UNLICENSED"
+}

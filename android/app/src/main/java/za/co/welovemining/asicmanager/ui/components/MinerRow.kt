@@ -1,8 +1,9 @@
 package za.co.welovemining.asicmanager.ui.components
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,17 +31,20 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import za.co.welovemining.asicmanager.data.model.CoolingType
+import za.co.welovemining.asicmanager.data.model.FirmwareType
 import za.co.welovemining.asicmanager.data.model.MinerState
 import za.co.welovemining.asicmanager.data.model.MinerWithStats
 import za.co.welovemining.asicmanager.ui.theme.WlmOrange
 import za.co.welovemining.asicmanager.ui.theme.WlmPower
 import za.co.welovemining.asicmanager.ui.theme.WlmWater
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MinerRow(
     item: MinerWithStats,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onLongClick: (() -> Unit)? = null,
 ) {
     val stats = item.stats
     val state = stats?.state ?: MinerState.OFFLINE
@@ -53,7 +57,7 @@ fun MinerRow(
             .clip(RoundedCornerShape(16.dp))
             .background(MaterialTheme.colorScheme.surface)
             .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(14.dp),
     ) {
         // accent status bar
@@ -74,8 +78,13 @@ fun MinerRow(
                 }
             }
             Spacer(Modifier.height(2.dp))
+            // Fall back to what the device reports when the stored fields are
+            // blank/unknown (e.g. miners added before they were fingerprinted).
+            val modelText = item.miner.model.ifBlank { stats?.model.orEmpty() }.ifBlank { "Unknown model" }
+            val fwText = if (item.miner.firmware != FirmwareType.UNKNOWN) item.miner.firmware.displayName
+                else stats?.firmwareVersion?.takeIf { it.isNotBlank() } ?: "Unknown"
             Text(
-                "${item.miner.model} · ${item.miner.firmware.displayName}",
+                "$modelText · $fwText",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

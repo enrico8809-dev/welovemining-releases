@@ -2,111 +2,60 @@
   <img src="docs/logo.png" alt="WeLoveMining" width="120" />
 </p>
 
-# WeLoveMining — Releases
+# WLM ASIC Manager
 
-Official downloads for the WeLoveMining ASIC miner management ecosystem.
+Monitor and manage Antminer/ASIC fleets (Braiins OS+ first-class, plus Bitmain
+stock, Avalon and VNish) from your phone — on-site or from anywhere.
 
-Two paired apps:
+**Two pieces, nothing else:**
 
-| App | For | Where it runs |
+| Part | Runs on | Download |
 |---|---|---|
-| **WeLoveMining CRM** | You (the operator) | Windows PC, Android phone, or any web browser |
-| **WeLoveMining Miner Manager** | Each mining site (you or your customers) | Windows PC on the same LAN as the miners |
-
----
-
-## ⬇️ Downloads (latest release)
-
-Go to the **[Releases page](../../releases/latest)** and pick the file for your platform:
-
-### WeLoveMining CRM
-The central dashboard — clients, quotes, invoices, expenses, banking, P&L reports, plus a Customer Sites view that aggregates miner stats from every linked Miner Manager.
-
-| Platform | File | Size |
-|---|---|---|
-| Windows installer | `WeLoveMining-CRM-Setup-1.0.0.exe` | 105 MB |
-| Windows portable (no install) | `WeLoveMining-CRM-Portable-1.0.0.exe` | 105 MB |
-| Android phone (sideload APK) | `WeLoveMining-CRM-Android-1.0.0.apk` | 5 MB |
-| Web bundle (host on your own server) | `WeLoveMining-CRM-Web-1.0.0.zip` | 1.4 MB |
-
-### WeLoveMining Miner Manager
-Light, customer-facing app. Installed at the mining site, it auto-discovers ASIC miners on the LAN, polls their stats, and reports back to the CRM over a secure outbound connection — no port forwarding needed.
-
-| Platform | File | Size |
-|---|---|---|
-| Windows installer | `WeLoveMining-MinerManager-Setup-1.0.0.exe` | 94 MB |
-| Windows portable | `WeLoveMining-MinerManager-Portable-1.0.0.exe` | 94 MB |
-| Android phone (LAN viewer) | `WeLoveMining-MinerManager-Android-1.0.0.apk` | 5 MB |
-
----
-
-## 🚀 Quick start
-
-### For the operator (you)
-
-1. Download **WeLoveMining-CRM-Setup-1.0.0.exe** → install on the PC where the CRM will live.
-2. Run it. The CRM opens at `http://localhost:4500`.
-3. (Optional) **Settings → Remote Access → Start Tunnel** to get a public URL your phone can hit from anywhere.
-4. (Recommended) **Settings → Security** → set a password.
-5. To add a customer site:
-   - **Customer Sites → New Customer Site** → enter a name → click Generate Agent Key
-   - Hand the customer their **Agent Key** + your **CRM URL**
-
-### For a mining site (customer)
-
-1. Download **WeLoveMining-MinerManager-Setup-1.0.0.exe** → install on a Windows PC on the same Wi-Fi/LAN as the ASIC miners.
-2. Launch → on the **Setup** screen, paste:
-   - **Agent Key**: provided by your WeLoveMining supplier
-   - **CRM URL**: provided by your WeLoveMining supplier
-   - **Subnet**: e.g. `192.168.1.0/24`
-3. Click **Save & Connect**. The app scans the LAN and starts reporting back.
-4. (Optional) Install the Android app for an on-the-go view of your fleet.
-
----
-
-## ⛏️ Supported miners
-
-### Antminer (HTTP & cgminer / bmminer)
-S19, S19j, S19 Pro, S19j Pro, S19 XP, S19k Pro, S21, S21+, S21 Pro, S21 XP, T21
-**Hydro / water-cooled** variants: S19 Hydro, S19 Pro Hydro, S19j Pro Hydro, S19 XP Hydro, S21 Hydro, S21 Pro Hyd., S21 XP Hyd., T21 Hydro
-Firmware: stock Bitmain, **Braiins OS+ / BOSer**, Vnish, LuxOS, Hiveon
-
-### Whatsminer (TCP API)
-M30S/+/++, M50/M50S, M53/M53S, M56, M60/M60S, M63S
-
-### Hydro stats automatically picked up
-Coolant inlet & outlet temperature, flow rate (L/min), pump RPM.
-
----
-
-## 🛡️ Architecture
+| **WLM Gateway** | a PC at each mining site | [`gateway-latest`](../../releases/tag/gateway-latest) → `WLM-Gateway-Setup.exe` |
+| **WLM ASIC Manager** (app) | your / clients' phones | [`app-latest`](../../releases/tag/app-latest) → `WLM-ASIC-Manager-latest.apk` |
 
 ```
-Operator's phone → Cloudflare tunnel → CRM PC ↔ Customer Miner Manager → ASIC miners on customer LAN
+miners ◀─LAN─ WLM Gateway ─tunnel─▶ App
 ```
 
-- CRM ↔ Miner Manager uses an outbound socket.io connection (customer doesn't need port-forwarding).
-- Authentication: per-customer Agent Keys (UUIDs); CRM password is operator-side.
-- All communication TLS-protected when using the Cloudflare tunnel.
+## Setup
+
+1. **Each site:** run `WLM-Gateway-Setup.exe`, type a site name, finish. Open its
+   dashboard (`http://localhost:8787`) — it shows the **App address + token**.
+2. **App:** Settings → **My Sites → Add site** → paste that address + token.
+   - A client adds their own site; you add every client's gateway to see them all.
+
+That's the whole thing — no hub, no server, no port-forwarding (the Gateway
+makes its own tunnel; paste a Cloudflare connection code during install if you
+want a permanent custom domain).
+
+## Source
+
+- `gateway/` — the Windows Gateway (Node, zero-dep): discovery, dashboard, API, tunnel
+- `android/` — the app (Kotlin + Jetpack Compose)
+
+Installers/APK are built by GitHub Actions and published to the releases above.
 
 ---
 
-## 📦 Versions
+## Mr Dweedery 🌿 (cannabis delivery app)
 
-Each binary embeds version `1.0.0`. Patch releases ship as new files on the [Releases page](../../releases). The Android APKs auto-rebuild on every commit to the source repos via GitHub Actions — these mirror the published binaries.
+A separate, Mr D–style cannabis delivery app for South Africa — shop discovery,
+basket, checkout with SA payment platforms (PayFast, Yoco, Ozow, SnapScan), and
+live order tracking. Green & grey, Android-first. **18+ only.**
 
-## 🧑‍💻 Source code
+| Part | Runs on | Download |
+|---|---|---|
+| **Mr Dweedery** (app) | Android phones | [`mr-dweedery-latest`](../../releases/tag/mr-dweedery-latest) → `Mr-Dweedery-latest.apk` |
 
-Source repositories are **private**. Contact WeLoveMining for access.
+- `mr-dweedery/` — the app (Expo / React Native + TypeScript)
+- `mr-dweedery-backend/` — Firebase Functions payment backend (holds secret keys)
 
-- CRM: `welovemining-crm`
-- Miner Manager: `welovemining-client`
+The APK is built on EAS and auto-published to the release above by GitHub Actions
+(needs an `EXPO_TOKEN` repo secret). See [`mr-dweedery/README.md`](mr-dweedery/README.md).
 
----
+## Support
 
-## 📞 Support
-
-For setup help, custom builds, or new miner-model integrations:
 **enrico@welovemining.co.za** · [welovemining.co.za](https://welovemining.co.za)
 
 © 2026 WeLoveMining (Pty) Ltd. All rights reserved.

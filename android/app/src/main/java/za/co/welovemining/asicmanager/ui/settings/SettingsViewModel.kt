@@ -11,6 +11,8 @@ import kotlinx.coroutines.launch
 import za.co.welovemining.asicmanager.data.connection.ConnectionMode
 import za.co.welovemining.asicmanager.data.settings.AppSettings
 import za.co.welovemining.asicmanager.data.settings.SettingsStore
+import za.co.welovemining.asicmanager.data.settings.Site
+import java.util.UUID
 
 /** Reads and writes [AppSettings]. */
 class SettingsViewModel(
@@ -19,6 +21,32 @@ class SettingsViewModel(
 
     val settings: StateFlow<AppSettings> = store.settings
         .stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings.DEFAULT)
+
+    init {
+        // Migrate the legacy single-gateway fields into the sites list.
+        viewModelScope.launch {
+            store.updateSettings { s ->
+                if (s.gatewayUrl.isNotBlank() && s.sites.isEmpty()) {
+                    s.copy(
+                        sites = listOf(Site(id = UUID.randomUUID().toString(), name = "My Site", url = s.gatewayUrl, token = s.gatewayToken)),
+                        gatewayUrl = "",
+                        gatewayToken = "",
+                    )
+                } else s
+            }
+        }
+    }
+
+    /** Insert or replace a site (matched by id). Adding a site leaves demo mode. */
+    fun saveSite(site: Site) = update { s ->
+        val exists = s.sites.any { it.id == site.id }
+        s.copy(
+            sites = if (exists) s.sites.map { if (it.id == site.id) site else it } else s.sites + site,
+            demoMode = false,
+        )
+    }
+
+    fun deleteSite(id: String) = update { s -> s.copy(sites = s.sites.filterNot { it.id == id }) }
 
     fun setDemoMode(on: Boolean) = update { it.copy(demoMode = on) }
     fun setConnectionMode(mode: ConnectionMode) = update { it.copy(connectionMode = mode) }
