@@ -28,6 +28,8 @@ export interface Settings {
   /** Shown at the foot of every invoice and quote. */
   invoiceFooter: string;
   quoteValidityDays: number;
+  /** Set whenever settings change, so sync can tell which side is newer. */
+  updatedAt?: number;
 }
 
 /** Printed on invoices so customers know where to pay. */
@@ -46,6 +48,8 @@ export interface Ledger {
   movements: StockMovement[];
   reconciliations: Reconciliation[];
   openingBank: number;
+  /** Sync stamp for the opening balance, which has no record of its own. */
+  openingBankUpdatedAt?: number;
   settings: Settings;
 }
 
@@ -95,6 +99,8 @@ export function normaliseLedger(parsed: unknown): Ledger {
     movements: Array.isArray(raw.movements) ? raw.movements : [],
     reconciliations: Array.isArray(raw.reconciliations) ? raw.reconciliations : [],
     openingBank: typeof raw.openingBank === "number" ? raw.openingBank : 0,
+    openingBankUpdatedAt:
+      typeof raw.openingBankUpdatedAt === "number" ? raw.openingBankUpdatedAt : undefined,
     // `bank` is nested, so a plain spread would drop its defaults when an older
     // backup has no bank block at all.
     settings: {

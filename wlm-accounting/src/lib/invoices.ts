@@ -44,6 +44,10 @@ export interface BusinessDoc {
   convertedToId?: string;
   /** The income account the sale is credited to. */
   incomeAccount: string;
+  /** Set on every change; drives last-write-wins during cloud sync. */
+  updatedAt?: number;
+  /** Set instead of removing the record, so the deletion reaches other devices. */
+  deletedAt?: number;
 }
 
 export function lineTotal(item: LineItem): number {

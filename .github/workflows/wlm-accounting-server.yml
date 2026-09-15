@@ -1,0 +1,62 @@
+name: WLM Accounting — sync server
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "wlm-accounting-server/**"
+      - ".github/workflows/wlm-accounting-server.yml"
+  pull_request:
+    paths:
+      - "wlm-accounting-server/**"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: wlm-accounting-server
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Smoke-test a real server
+        run: |
+          WLM_DATA_DIR="$RUNNER_TEMP/wlm-smoke" PORT=4699 node dist/index.js &
+          SERVER_PID=$!
+          sleep 3
+
+          health=$(curl -sf http://127.0.0.1:4699/api/health)
+          echo "health: $health"
+          echo "$health" | grep -q '"claimed":false' || { echo "::error::unclaimed server did not report claimed:false"; kill $SERVER_PID; exit 1; }
+
+          claim=$(curl -sf -X POST http://127.0.0.1:4699/api/claim \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"ci@example.com","password":"a properly long password","name":"CI"}')
+          echo "$claim" | grep -q '"role":"owner"' || { echo "::error::claim did not create an owner"; kill $SERVER_PID; exit 1; }
+
+          # A claimed server must refuse a second claim.
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:4699/api/claim \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"other@example.com","password":"a properly long password"}')
+          [ "$code" = "409" ] || { echo "::error::second claim returned $code, expected 409"; kill $SERVER_PID; exit 1; }
+
+          kill $SERVER_PID
+          echo "Smoke test passed."

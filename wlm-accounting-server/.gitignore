@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.log
+
+# Never commit a real ledger or tunnel credentials
+data/
+*.json.tmp
+*.corrupt-*
+cloudflared/

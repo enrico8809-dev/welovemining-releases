@@ -105,6 +105,10 @@ export interface StockMovement {
   note?: string;
   /** Links a sale back to the invoice it belongs to, when there is one. */
   docId?: string;
+  /** Set on every change; drives last-write-wins during cloud sync. */
+  updatedAt?: number;
+  /** Set instead of removing the record, so the deletion reaches other devices. */
+  deletedAt?: number;
 }
 
 export function newMovementId(): string {

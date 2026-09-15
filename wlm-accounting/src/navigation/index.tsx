@@ -12,6 +12,7 @@ import StockScreen from "../screens/StockScreen";
 import CatalogueScreen from "../screens/CatalogueScreen";
 import ProductDetailScreen from "../screens/ProductDetailScreen";
 import SettingsScreen from "../screens/SettingsScreen";
+import CloudScreen from "../screens/CloudScreen";
 import AccountDetailScreen from "../screens/AccountDetailScreen";
 import DocEditorScreen from "../screens/DocEditorScreen";
 import DocDetailScreen from "../screens/DocDetailScreen";
@@ -62,6 +63,7 @@ export default function RootNavigator() {
         <Stack.Screen name="DocEditor" component={DocEditorScreen} />
         <Stack.Screen name="DocDetail" component={DocDetailScreen} />
         <Stack.Screen name="Settings" component={SettingsScreen} />
+        <Stack.Screen name="Cloud" component={CloudScreen} />
         <Stack.Screen name="Catalogue" component={CatalogueScreen} />
         <Stack.Screen name="ProductDetail" component={ProductDetailScreen} />
         <Stack.Screen name="BankImport" component={BankImportScreen} />

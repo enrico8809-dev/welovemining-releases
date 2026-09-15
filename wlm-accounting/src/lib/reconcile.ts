@@ -218,6 +218,10 @@ export interface Reconciliation {
   difference: number;
   matchedTxnIds: string[];
   createdAt: string;
+  /** Set on every change; drives last-write-wins during cloud sync. */
+  updatedAt?: number;
+  /** Set instead of removing the record, so the deletion reaches other devices. */
+  deletedAt?: number;
 }
 
 export function newReconciliationId(): string {

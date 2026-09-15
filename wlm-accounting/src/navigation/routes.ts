@@ -8,6 +8,7 @@ export type RootStackParamList = {
   DocEditor: { docId?: string; kind: "invoice" | "quote"; pickedProductId?: string };
   DocDetail: { docId: string };
   Settings: undefined;
+  Cloud: undefined;
   Catalogue: { mode?: "browse" | "stock-in" | "line-item"; docId?: string } | undefined;
   ProductDetail: { productId: string; mode?: "stock-in" | "line-item"; docId?: string };
   BankImport: undefined;

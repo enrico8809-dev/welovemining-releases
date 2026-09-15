@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { Download, ImagePlus, Trash2, Upload } from "lucide-react-native";
+import { ChevronRight, Cloud, CloudOff, Download, ImagePlus, Trash2, Upload } from "lucide-react-native";
 import Header from "../components/Header";
 import Card from "../components/Card";
 import Button from "../components/Button";
@@ -19,7 +19,8 @@ import { RootStackParamList } from "../navigation/routes";
 export default function SettingsScreen() {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const toast = useToast();
-  const { settings, updateSettings, exportSnapshot, replaceLedger, txns, docs } = useLedger();
+  const { settings, updateSettings, exportSnapshot, replaceLedger, txns, docs, cloud } =
+    useLedger();
   const [busy, setBusy] = useState<"export" | "import" | "logo" | null>(null);
 
   const patchBank = (patch: Partial<typeof settings.bank>) =>
@@ -412,7 +413,32 @@ export default function SettingsScreen() {
           </Text>
         </Card>
 
-        <Card index={5} title="DATA">
+        <Card index={5} title="CLOUD" onPress={() => nav.navigate("Cloud")}>
+          <View style={styles.cloudRow}>
+            <View style={[styles.cloudIcon, cloud && { borderColor: C.green }]}>
+              {cloud ? (
+                <Cloud color={C.green} size={19} />
+              ) : (
+                <CloudOff color={C.mute} size={19} />
+              )}
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cloudTitle}>
+                {cloud ? `Synced as ${cloud.user.email}` : "Not connected"}
+              </Text>
+              <Text style={styles.cloudNote}>
+                {cloud
+                  ? cloud.lastSyncedIso
+                    ? `Last synced ${new Date(cloud.lastSyncedIso).toLocaleString("en-ZA")}`
+                    : "Signed in, not yet synced"
+                  : "Share the books across devices, on your own server."}
+              </Text>
+            </View>
+            <ChevronRight color={C.mute} size={16} />
+          </View>
+        </Card>
+
+        <Card index={6} title="DATA">
           <Text style={styles.statText}>
             {txns.length} transaction{txns.length === 1 ? "" : "s"} · {docs.length} document
             {docs.length === 1 ? "" : "s"}
@@ -437,7 +463,7 @@ export default function SettingsScreen() {
             Everything lives on this phone only. Export regularly — a lost phone is a lost book.
           </Text>
         </Card>
-        <Card index={6} title="ABOUT">
+        <Card index={7} title="ABOUT">
           <Text style={styles.about}>
             WLM Accounting records every transaction once and categorises it once, using
             double-entry underneath. You pick what happened; the app books the debit and credit.
@@ -481,6 +507,18 @@ const styles = StyleSheet.create({
   settingNote: { ...T.caption, color: C.mute, marginTop: 2 },
   settingValue: { ...T.amount, color: C.orange },
   statText: { ...T.small, color: C.mute },
+  cloudRow: { flexDirection: "row", alignItems: "center", gap: S.md },
+  cloudIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: R.pill,
+    borderWidth: 1,
+    borderColor: C.line,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cloudTitle: { ...T.bodyBold, color: C.text },
+  cloudNote: { ...T.caption, color: C.mute, marginTop: 3, lineHeight: 15 },
   subLabel: { ...T.label, color: C.mute, marginBottom: S.sm },
   tierRow: { flexDirection: "row", alignItems: "flex-end", gap: S.sm, marginBottom: S.sm },
   tierQty: { width: 96 },

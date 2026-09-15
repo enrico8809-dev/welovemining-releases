@@ -10,6 +10,8 @@ import { Account, SEED_ACCOUNTS, Txn, computeBalances } from "./accounting";
 import { BusinessDoc, postingsForDocs } from "./invoices";
 import { StockMovement, postingsForMovements } from "./inventory";
 import { Reconciliation } from "./reconcile";
+import { CloudSession, SyncOutcome, live, stamp, syncOnce, tombstone } from "./sync";
+import { clearSession, loadSession, saveSession } from "./cloudSession";
 import { findProduct, productLabel } from "./catalogue";
 import { EMPTY_LEDGER, Ledger, Settings, loadLedger, saveLedger } from "./storage";
 
@@ -39,6 +41,12 @@ interface LedgerContextValue {
   updateSettings: (patch: Partial<Settings>) => Promise<void>;
   replaceLedger: (ledger: Ledger) => Promise<void>;
   exportSnapshot: () => Ledger;
+  cloud: CloudSession | null;
+  syncing: boolean;
+  lastSync: SyncOutcome | null;
+  connectCloud: (session: CloudSession) => Promise<void>;
+  disconnectCloud: () => Promise<void>;
+  syncNow: () => Promise<SyncOutcome>;
 }
 
 const LedgerContext = createContext<LedgerContextValue | undefined>(undefined);
@@ -46,12 +54,16 @@ const LedgerContext = createContext<LedgerContextValue | undefined>(undefined);
 export function LedgerProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [ledger, setLedger] = useState<Ledger>(EMPTY_LEDGER);
+  const [cloud, setCloud] = useState<CloudSession | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSync, setLastSync] = useState<SyncOutcome | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    loadLedger().then((loaded) => {
+    Promise.all([loadLedger(), loadSession()]).then(([loaded, session]) => {
       if (cancelled) return;
       setLedger(loaded);
+      setCloud(session);
       setLoading(false);
     });
     return () => {
@@ -65,18 +77,27 @@ export function LedgerProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const addTxn = useCallback(
-    (txn: Txn) => persist({ ...ledger, txns: [txn, ...ledger.txns] }),
+    (txn: Txn) => persist({ ...ledger, txns: [stamp(txn), ...ledger.txns] }),
     [ledger, persist]
   );
 
   const updateTxn = useCallback(
     (txn: Txn) =>
-      persist({ ...ledger, txns: ledger.txns.map((t) => (t.id === txn.id ? txn : t)) }),
+      persist({
+        ...ledger,
+        txns: ledger.txns.map((t) => (t.id === txn.id ? stamp(txn) : t)),
+      }),
     [ledger, persist]
   );
 
+  // Deleting marks rather than drops, so the deletion can reach other devices.
+  // Tombstones are filtered out of everything the UI reads.
   const removeTxn = useCallback(
-    (id: string) => persist({ ...ledger, txns: ledger.txns.filter((t) => t.id !== id) }),
+    (id: string) =>
+      persist({
+        ...ledger,
+        txns: ledger.txns.map((t) => (t.id === id ? tombstone(t) : t)),
+      }),
     [ledger, persist]
   );
 
@@ -84,32 +105,39 @@ export function LedgerProvider({ children }: { children: React.ReactNode }) {
     (doc: BusinessDoc) => {
       const exists = ledger.docs.some((d) => d.id === doc.id);
       const docs = exists
-        ? ledger.docs.map((d) => (d.id === doc.id ? doc : d))
-        : [doc, ...ledger.docs];
+        ? ledger.docs.map((d) => (d.id === doc.id ? stamp(doc) : d))
+        : [stamp(doc), ...ledger.docs];
       return persist({ ...ledger, docs });
     },
     [ledger, persist]
   );
 
   const removeDoc = useCallback(
-    (id: string) => persist({ ...ledger, docs: ledger.docs.filter((d) => d.id !== id) }),
+    (id: string) =>
+      persist({
+        ...ledger,
+        docs: ledger.docs.map((d) => (d.id === id ? tombstone(d) : d)),
+      }),
     [ledger, persist]
   );
 
   const addMovement = useCallback(
-    (m: StockMovement) => persist({ ...ledger, movements: [m, ...ledger.movements] }),
+    (m: StockMovement) => persist({ ...ledger, movements: [stamp(m), ...ledger.movements] }),
     [ledger, persist]
   );
 
   const removeMovement = useCallback(
     (id: string) =>
-      persist({ ...ledger, movements: ledger.movements.filter((m) => m.id !== id) }),
+      persist({
+        ...ledger,
+        movements: ledger.movements.map((m) => (m.id === id ? tombstone(m) : m)),
+      }),
     [ledger, persist]
   );
 
   const addReconciliation = useCallback(
     (r: Reconciliation) =>
-      persist({ ...ledger, reconciliations: [r, ...ledger.reconciliations] }),
+      persist({ ...ledger, reconciliations: [stamp(r), ...ledger.reconciliations] }),
     [ledger, persist]
   );
 
@@ -117,37 +145,83 @@ export function LedgerProvider({ children }: { children: React.ReactNode }) {
     (id: string) =>
       persist({
         ...ledger,
-        reconciliations: ledger.reconciliations.filter((r) => r.id !== id),
+        reconciliations: ledger.reconciliations.map((r) =>
+          r.id === id ? tombstone(r) : r
+        ),
       }),
     [ledger, persist]
   );
 
   const setOpeningBank = useCallback(
-    (amount: number) => persist({ ...ledger, openingBank: amount }),
+    (amount: number) =>
+      persist({ ...ledger, openingBank: amount, openingBankUpdatedAt: Date.now() }),
     [ledger, persist]
   );
 
   const updateSettings = useCallback(
     (patch: Partial<Settings>) =>
-      persist({ ...ledger, settings: { ...ledger.settings, ...patch } }),
+      persist({
+        ...ledger,
+        settings: { ...ledger.settings, ...patch, updatedAt: Date.now() },
+      }),
     [ledger, persist]
   );
 
   const replaceLedger = useCallback((next: Ledger) => persist(next), [persist]);
 
+  const connectCloud = useCallback(async (session: CloudSession) => {
+    setCloud(session);
+    await saveSession(session);
+  }, []);
+
+  const disconnectCloud = useCallback(async () => {
+    setCloud(null);
+    setLastSync(null);
+    await clearSession();
+  }, []);
+
+  const syncNow = useCallback(async (): Promise<SyncOutcome> => {
+    if (!cloud) {
+      const outcome = { ok: false, pushed: 0, pulled: 0, error: "Not connected." };
+      setLastSync(outcome);
+      return outcome;
+    }
+    setSyncing(true);
+    try {
+      const result = await syncOnce(cloud, ledger);
+      if (result.outcome.ok) {
+        await persist(result.ledger);
+        setCloud(result.session);
+        await saveSession(result.session);
+      }
+      setLastSync(result.outcome);
+      return result.outcome;
+    } finally {
+      setSyncing(false);
+    }
+  }, [cloud, ledger, persist]);
+
   // Invoice and stock postings are derived, never stored — so a document or a
   // stock move and its ledger entries can't drift apart, and revenue can only
   // ever be recognised once.
+  const liveTxns = useMemo(() => live(ledger.txns), [ledger.txns]);
+  const liveDocs = useMemo(() => live(ledger.docs), [ledger.docs]);
+  const liveMovements = useMemo(() => live(ledger.movements), [ledger.movements]);
+  const liveReconciliations = useMemo(
+    () => live(ledger.reconciliations),
+    [ledger.reconciliations]
+  );
+
   const allTxns = useMemo(
     () => [
-      ...ledger.txns,
-      ...postingsForDocs(ledger.docs),
-      ...postingsForMovements(ledger.movements, (id) => {
+      ...liveTxns,
+      ...postingsForDocs(liveDocs),
+      ...postingsForMovements(liveMovements, (id) => {
         const product = findProduct(id);
         return product ? productLabel(product) : id;
       }),
     ],
-    [ledger.txns, ledger.docs, ledger.movements]
+    [liveTxns, liveDocs, liveMovements]
   );
 
   const balances = useMemo(
@@ -159,11 +233,11 @@ export function LedgerProvider({ children }: { children: React.ReactNode }) {
     () => ({
       loading,
       accounts: SEED_ACCOUNTS,
-      manualTxns: ledger.txns,
+      manualTxns: liveTxns,
       txns: allTxns,
-      docs: ledger.docs,
-      movements: ledger.movements,
-      reconciliations: ledger.reconciliations,
+      docs: liveDocs,
+      movements: liveMovements,
+      reconciliations: liveReconciliations,
       openingBank: ledger.openingBank,
       settings: ledger.settings,
       balances,
@@ -180,6 +254,12 @@ export function LedgerProvider({ children }: { children: React.ReactNode }) {
       updateSettings,
       replaceLedger,
       exportSnapshot: () => ledger,
+      cloud,
+      syncing,
+      lastSync,
+      connectCloud,
+      disconnectCloud,
+      syncNow,
     }),
     [
       loading,
@@ -198,6 +278,16 @@ export function LedgerProvider({ children }: { children: React.ReactNode }) {
       setOpeningBank,
       updateSettings,
       replaceLedger,
+      liveTxns,
+      liveDocs,
+      liveMovements,
+      liveReconciliations,
+      cloud,
+      syncing,
+      lastSync,
+      connectCloud,
+      disconnectCloud,
+      syncNow,
     ]
   );
 
