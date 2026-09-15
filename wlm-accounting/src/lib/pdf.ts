@@ -2,7 +2,6 @@ import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { BusinessDoc, docTotal, lineTotal, statusLabel } from "./invoices";
 import { Settings } from "./storage";
-import { logoAsDataUri } from "./logo";
 import { abs, fmtDate } from "./format";
 import { Account, TrialBalanceRow, ProfitAndLoss } from "./accounting";
 
@@ -58,7 +57,9 @@ function esc(s: string): string {
 }
 
 function letterhead(settings: Settings): string {
-  const logo = settings.logoUri ? logoAsDataUri(settings.logoUri) : null;
+  // Already a data URI, so it embeds straight into the document — the PDF
+  // renderer has no file access of its own.
+  const logo = settings.logo || null;
   const meta = [
     settings.registrationNumber ? `Reg: ${settings.registrationNumber}` : "",
     settings.vatNumber ? `VAT: ${settings.vatNumber}` : "",

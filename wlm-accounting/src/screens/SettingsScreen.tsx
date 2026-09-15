@@ -10,7 +10,7 @@ import Field from "../components/Field";
 import { useToast } from "../components/Toast";
 import { useLedger } from "../lib/LedgerContext";
 import { exportLedger, importLedger } from "../lib/backup";
-import { deleteCompanyLogo, pickCompanyLogo } from "../lib/logo";
+import { LogoPermissionError, logoSizeKb, pickCompanyLogo } from "../lib/logo";
 import { MONTHS, parseAmount } from "../lib/format";
 import { APP_VERSION } from "../lib/version";
 import { C, R, S, T } from "../lib/theme";
@@ -29,16 +29,17 @@ export default function SettingsScreen() {
   const handlePickLogo = async () => {
     setBusy("logo");
     try {
-      const uri = await pickCompanyLogo();
-      if (!uri) return;
-      if (settings.logoUri && settings.logoUri !== uri) deleteCompanyLogo(settings.logoUri);
-      updateSettings({ logoUri: uri });
-      toast.show("Logo updated — it'll appear on invoices");
+      const logo = await pickCompanyLogo();
+      if (!logo) return;
+      updateSettings({ logo });
+      toast.show(
+        cloud
+          ? "Logo updated — syncs to your other devices"
+          : "Logo updated — it'll appear on invoices"
+      );
     } catch (e) {
       toast.show(
-        (e as Error).message === "no-permission"
-          ? "Allow photo access to pick a logo"
-          : "Couldn't load that image",
+        e instanceof LogoPermissionError ? e.message : (e as Error).message || "Couldn't load that image",
         "error"
       );
     } finally {
@@ -47,8 +48,7 @@ export default function SettingsScreen() {
   };
 
   const handleRemoveLogo = () => {
-    if (settings.logoUri) deleteCompanyLogo(settings.logoUri);
-    updateSettings({ logoUri: "" });
+    updateSettings({ logo: "" });
     toast.show("Logo removed");
   };
 
@@ -108,23 +108,26 @@ export default function SettingsScreen() {
 
       <View style={styles.body}>
         <Card index={0} title="LOGO">
-          <Text style={styles.note}>Printed at the top of every invoice and quote.</Text>
+          <Text style={styles.note}>
+            Printed at the top of every invoice and quote. Stored in the books
+            themselves, so it follows you to any device you sign in on.
+          </Text>
           <View style={styles.logoRow}>
             <View style={styles.logoFrame}>
-              {settings.logoUri ? (
-                <Image source={{ uri: settings.logoUri }} style={styles.logo} resizeMode="contain" />
+              {settings.logo ? (
+                <Image source={{ uri: settings.logo }} style={styles.logo} resizeMode="contain" />
               ) : (
                 <ImagePlus color={C.mute} size={26} />
               )}
             </View>
             <View style={styles.logoActions}>
               <Button
-                label={settings.logoUri ? "Change logo" : "Upload logo"}
+                label={settings.logo ? "Change logo" : "Upload logo"}
                 variant="secondary"
                 onPress={handlePickLogo}
                 loading={busy === "logo"}
               />
-              {!!settings.logoUri && (
+              {!!settings.logo && (
                 <Button
                   label="Remove"
                   variant="danger"
@@ -134,6 +137,9 @@ export default function SettingsScreen() {
               )}
             </View>
           </View>
+          {!!settings.logo && (
+            <Text style={styles.note}>Stored at {logoSizeKb(settings.logo)} KB.</Text>
+          )}
         </Card>
 
         <Card index={1} title="COMPANY">

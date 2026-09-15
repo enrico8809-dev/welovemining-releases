@@ -217,8 +217,8 @@ export function removeUser(session: CloudSession, userId: string): Promise<{ ok:
  * server sends back. Returns the ledger to persist and the session cursor to
  * store alongside it.
  *
- * The logo is deliberately left out of synced settings — it's a file path on
- * this device, meaningless anywhere else. Each device sets its own.
+ * Settings carry the logo as a data URI, so a colleague signing in on another
+ * phone gets branded invoices without doing anything.
  */
 export async function syncOnce(
   session: CloudSession,
@@ -237,7 +237,10 @@ export async function syncOnce(
     }
   }
 
-  const { logoUri: _omitted, ...syncableSettings } = ledger.settings;
+  // The logo rides along as a data URI — it's the whole point of storing it
+  // inline. Only the legacy file path is dropped, since a path from one device
+  // means nothing on another.
+  const { logoUri: _deadPath, ...syncableSettings } = ledger.settings;
   const settingsUpdatedAt = ledger.settings.updatedAt ?? 0;
   if (settingsUpdatedAt > since) {
     changes.settings = { value: syncableSettings, updatedAt: settingsUpdatedAt };
@@ -286,8 +289,6 @@ export async function syncOnce(
     next.settings = {
       ...next.settings,
       ...incomingSettings.value,
-      // Keep this device's own logo; the server never carries one.
-      logoUri: next.settings.logoUri,
       updatedAt: incomingSettings.updatedAt,
     };
     pulled++;

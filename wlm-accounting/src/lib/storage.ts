@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { File } from "expo-file-system";
 import { Txn } from "./accounting";
 import { BusinessDoc } from "./invoices";
 import { DEFAULT_LANDED_COST, LandedCostSettings, StockMovement } from "./inventory";
@@ -17,8 +18,10 @@ export interface Settings {
   phone: string;
   website: string;
   address: string;
-  /** Local file URI of the logo, copied into app storage so it survives. */
-  logoUri: string;
+  /** The logo as a resized data URI. Syncs with everything else. */
+  logo: string;
+  /** Legacy file path from before the logo was stored inline. Migrated on load. */
+  logoUri?: string;
   bank: BankDetails;
   fyStartMonth: number;
   defaultPaymentTermsDays: number;
@@ -71,7 +74,7 @@ export const DEFAULT_SETTINGS: Settings = {
   phone: "079 166 6698",
   website: "www.welovemining.co.za",
   address: "",
-  logoUri: "",
+  logo: "",
   bank: DEFAULT_BANK,
   fyStartMonth: DEFAULT_FY_START_MONTH,
   defaultPaymentTermsDays: 14,
@@ -119,10 +122,39 @@ export function normaliseLedger(parsed: unknown): Ledger {
   };
 }
 
+/**
+ * Earlier versions stored the logo as a file path, which can't sync and which
+ * the OS is free to reclaim. Read it in once and keep it inline from then on.
+ */
+async function migrateLogo(ledger: Ledger): Promise<Ledger> {
+  const legacy = ledger.settings.logoUri;
+  if (ledger.settings.logo || !legacy) return ledger;
+
+  try {
+    const file = new File(legacy);
+    if (!file.exists) return { ...ledger, settings: { ...ledger.settings, logoUri: undefined } };
+
+    const base64 = file.base64Sync();
+    const mime = /\.png(\?|$)/i.test(legacy) ? "image/png" : "image/jpeg";
+    return {
+      ...ledger,
+      settings: {
+        ...ledger.settings,
+        logo: `data:${mime};base64,${base64}`,
+        logoUri: undefined,
+        updatedAt: Date.now(),
+      },
+    };
+  } catch {
+    // A logo that can't be read isn't worth failing the whole load over.
+    return { ...ledger, settings: { ...ledger.settings, logoUri: undefined } };
+  }
+}
+
 export async function loadLedger(): Promise<Ledger> {
   try {
     const raw = await AsyncStorage.getItem(KEY);
-    if (raw) return normaliseLedger(JSON.parse(raw));
+    if (raw) return migrateLogo(normaliseLedger(JSON.parse(raw)));
 
     // One-time migration from the v1 shape (txns + openingBank only).
     const legacy = await AsyncStorage.getItem(LEGACY_KEY);
