@@ -17,7 +17,6 @@ import { C, R, S, T } from "../lib/theme";
 import { RootStackParamList, ComingSoonRoute } from "../navigation/routes";
 
 const MODULES: { label: string; note: string; route: ComingSoonRoute }[] = [
-  { label: "Bank Import", note: "FNB CSV & OFX", route: "BankImport" },
   { label: "Reconciliation", note: "Match bank to ledger", route: "Reconciliation" },
 ];
 

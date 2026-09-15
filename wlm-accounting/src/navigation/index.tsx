@@ -15,7 +15,8 @@ import SettingsScreen from "../screens/SettingsScreen";
 import AccountDetailScreen from "../screens/AccountDetailScreen";
 import DocEditorScreen from "../screens/DocEditorScreen";
 import DocDetailScreen from "../screens/DocDetailScreen";
-import { BankImportScreen, ReconciliationScreen } from "../screens/comingsoon/screens";
+import BankImportScreen from "../screens/BankImportScreen";
+import { ReconciliationScreen } from "../screens/comingsoon/screens";
 import { RootStackParamList, TabParamList } from "./routes";
 import { C } from "../lib/theme";
 

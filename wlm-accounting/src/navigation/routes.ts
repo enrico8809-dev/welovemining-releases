@@ -23,7 +23,7 @@ export type TabParamList = {
   Reports: undefined;
 };
 
-export type ComingSoonRoute = "BankImport" | "Reconciliation";
+export type ComingSoonRoute = "Reconciliation";
 
 /**
  * Tab screens sit inside the root stack, so they need to address both: sibling

@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { FlatList, StyleSheet, Text, TextInput, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
-import { BookOpen, Search, X } from "lucide-react-native";
+import { BookOpen, FileUp, Search, X } from "lucide-react-native";
 import { Pressable } from "react-native";
 import Header from "../components/Header";
 import TxnRow from "../components/TxnRow";
@@ -71,7 +71,21 @@ export default function LedgerScreen() {
 
   return (
     <View style={styles.screen}>
-      <Header title="LEDGER" subtitle={`${visible.length} entries`} />
+      <Header
+        title="LEDGER"
+        subtitle={`${visible.length} entries`}
+        action={
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Import bank statement"
+            hitSlop={10}
+            onPress={() => nav.navigate("BankImport")}
+            style={styles.importBtn}
+          >
+            <FileUp color={C.mute} size={19} />
+          </Pressable>
+        }
+      />
 
       <View style={styles.filters}>
         <View style={styles.searchField}>
@@ -132,6 +146,16 @@ export default function LedgerScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.bg },
+  importBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: R.md,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: C.panel2,
+    borderWidth: 1,
+    borderColor: C.line,
+  },
   filters: { paddingHorizontal: S.lg, gap: S.md, paddingBottom: S.md },
   searchField: {
     flexDirection: "row",
