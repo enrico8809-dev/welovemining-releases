@@ -15,7 +15,7 @@ import {
   unitPriceUsd,
 } from "../lib/catalogue";
 import { computeLandedCost, computeStockLevels } from "../lib/inventory";
-import { fmt } from "../lib/format";
+import { fmt, fmtWhole } from "../lib/format";
 import { C, R, S, T } from "../lib/theme";
 import { RootStackParamList } from "../navigation/routes";
 
@@ -88,14 +88,23 @@ export default function CatalogueScreen() {
               computeLandedCost(item, 1, settings.landedCost).perUnitZar
             }
             onPress={() => {
-              // Picking for an invoice line hands the product straight back to
+              // Picking for a document line hands the product straight back to
               // the editor rather than detouring through the detail screen.
+              //
+              // popTo, not navigate: in React Navigation 7 navigate only reuses
+              // a route when it is the *current* one, so navigating back to the
+              // editor would push a brand-new one — a fresh, empty invoice —
+              // and abandon the half-typed document underneath it.
               if (mode === "line-item") {
-                nav.navigate({
-                  name: "DocEditor",
-                  params: { kind: "invoice", docId: route.params?.docId, pickedProductId: item.id },
-                  merge: true,
-                });
+                nav.popTo(
+                  "DocEditor",
+                  {
+                    kind: route.params?.docKind ?? "invoice",
+                    docId: route.params?.docId,
+                    pickedProductId: item.id,
+                  },
+                  { merge: true }
+                );
                 return;
               }
               nav.navigate("ProductDetail", {
@@ -155,7 +164,7 @@ function ProductRow({
 
       <View style={styles.priceCol}>
         <Text style={styles.usd}>
-          {usd > 0 ? `$${Math.round(usd).toLocaleString("en-ZA")}` : "—"}
+          {usd > 0 ? `$${fmtWhole(usd)}` : "—"}
         </Text>
         <Text style={styles.landed}>
           {landedPerUnit > 0 ? fmt(landedPerUnit) : "set rate"}

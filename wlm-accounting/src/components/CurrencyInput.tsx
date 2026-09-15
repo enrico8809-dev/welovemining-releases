@@ -1,7 +1,13 @@
 import React, { useState } from "react";
 import { StyleSheet, Text, TextInput, View } from "react-native";
 import { C, R, S, T } from "../lib/theme";
-import { abs, parseAmount } from "../lib/format";
+import {
+  AmountDraft,
+  NO_DRAFT,
+  amountBlurred,
+  amountText,
+  amountTyped,
+} from "../lib/amountField";
 
 interface CurrencyInputProps {
   value: string;
@@ -16,6 +22,9 @@ interface CurrencyInputProps {
  * Amount field with a permanent R prefix. Formats to two decimals with thousands
  * separators on blur, but leaves the raw text alone while typing so the caret
  * doesn't jump around.
+ *
+ * While the field is being typed into it shows what was typed, not what the
+ * parent made of it — see lib/amountField, which holds that rule and its tests.
  */
 export default function CurrencyInput({
   value,
@@ -25,11 +34,26 @@ export default function CurrencyInput({
   error,
 }: CurrencyInputProps) {
   const [focused, setFocused] = useState(false);
+  const [draft, setDraft] = useState<AmountDraft>(NO_DRAFT);
+
+  const text = amountText(draft, value);
+
+  const handleChangeText = (input: string) => {
+    const next = amountTyped(input);
+    setDraft(next.draft);
+    onChangeText(next.emit);
+  };
+
+  const handleFocus = () => {
+    setFocused(true);
+    setDraft(NO_DRAFT);
+  };
 
   const handleBlur = () => {
     setFocused(false);
-    const n = parseAmount(value);
-    if (Number.isFinite(n) && value.trim() !== "") onChangeText(abs(n));
+    const next = amountBlurred(text);
+    setDraft(next.draft);
+    if (next.emit !== null) onChangeText(next.emit);
   };
 
   return (
@@ -43,9 +67,9 @@ export default function CurrencyInput({
       >
         <Text style={styles.prefix}>R</Text>
         <TextInput
-          value={value}
-          onChangeText={onChangeText}
-          onFocus={() => setFocused(true)}
+          value={text}
+          onChangeText={handleChangeText}
+          onFocus={handleFocus}
           onBlur={handleBlur}
           placeholder={placeholder}
           placeholderTextColor={C.mute}

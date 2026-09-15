@@ -29,7 +29,7 @@ import {
 } from "../lib/invoices";
 import { computeLandedCost, suggestedPrice } from "../lib/inventory";
 import { findProduct, productLabel } from "../lib/catalogue";
-import { fmt, parseAmount, toISO, todayISO } from "../lib/format";
+import { abs, fmt, parseAmount, toISO, todayISO } from "../lib/format";
 import { C, R, S, T } from "../lib/theme";
 import { RootStackParamList } from "../navigation/routes";
 import * as haptics from "../lib/haptics";
@@ -193,11 +193,12 @@ export default function DocEditorScreen() {
                     <View style={styles.qty}>
                       <Text style={styles.miniLabel}>QTY</Text>
                       <Field
-                        value={String(item.qty)}
+                        value={item.qty ? String(item.qty) : ""}
                         onChangeText={(v) => {
-                          const n = Number(v.replace(/[^0-9]/g, ""));
-                          patchItem(item.id, { qty: Number.isFinite(n) ? n : 0 });
+                          const digits = v.replace(/[^0-9]/g, "");
+                          patchItem(item.id, { qty: digits ? Number(digits) : 0 });
                         }}
+                        placeholder="1"
                         keyboardType="number-pad"
                         mono
                       />
@@ -205,7 +206,7 @@ export default function DocEditorScreen() {
                     <View style={styles.price}>
                       <Text style={styles.miniLabel}>UNIT PRICE</Text>
                       <CurrencyInput
-                        value={item.unitPrice ? String(item.unitPrice) : ""}
+                        value={item.unitPrice ? abs(item.unitPrice) : ""}
                         onChangeText={(v) => {
                           const n = parseAmount(v);
                           patchItem(item.id, { unitPrice: Number.isFinite(n) ? n : 0 });
@@ -222,7 +223,11 @@ export default function DocEditorScreen() {
             <Button
               label="Pick from price list"
               onPress={() =>
-                nav.navigate("Catalogue", { mode: "line-item", docId: doc.id })
+                nav.navigate("Catalogue", {
+                  mode: "line-item",
+                  docId: doc.id,
+                  docKind: doc.kind,
+                })
               }
               icon={<Package color={C.bg} size={16} />}
               style={{ marginTop: S.md }}

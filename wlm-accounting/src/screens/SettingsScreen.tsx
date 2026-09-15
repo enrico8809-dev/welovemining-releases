@@ -7,11 +7,12 @@ import Header from "../components/Header";
 import Card from "../components/Card";
 import Button from "../components/Button";
 import Field from "../components/Field";
+import NumberField from "../components/NumberField";
 import { useToast } from "../components/Toast";
 import { useLedger } from "../lib/LedgerContext";
 import { exportLedger, importLedger } from "../lib/backup";
 import { LogoPermissionError, logoSizeKb, pickCompanyLogo } from "../lib/logo";
-import { MONTHS, parseAmount } from "../lib/format";
+import { MONTHS } from "../lib/format";
 import { APP_VERSION } from "../lib/version";
 import { C, R, S, T } from "../lib/theme";
 import { RootStackParamList } from "../navigation/routes";
@@ -299,16 +300,15 @@ export default function SettingsScreen() {
             class of electronics; import VAT is excluded while you're not VAT-registered.
           </Text>
           <Gap />
-          <Field
+          <NumberField
             label="USD / ZAR RATE"
-            value={String(settings.landedCost.usdZarRate)}
-            onChangeText={(v) =>
+            value={settings.landedCost.usdZarRate}
+            onChangeValue={(n) =>
               updateSettings({
-                landedCost: { ...settings.landedCost, usdZarRate: parseAmount(v) || 0 },
+                landedCost: { ...settings.landedCost, usdZarRate: n },
               })
             }
-            keyboardType="decimal-pad"
-            mono
+            placeholder="18.50"
           />
           <Gap />
 
@@ -329,16 +329,14 @@ export default function SettingsScreen() {
                 />
               </View>
               <View style={styles.tierCost}>
-                <Field
+                <NumberField
                   label="TOTAL USD"
-                  value={String(tier.totalUsd)}
-                  onChangeText={(v) => {
+                  value={tier.totalUsd}
+                  onChangeValue={(n) => {
                     const tiers = [...settings.landedCost.shippingTiers];
-                    tiers[idx] = { ...tier, totalUsd: parseAmount(v) || 0 };
+                    tiers[idx] = { ...tier, totalUsd: n };
                     updateSettings({ landedCost: { ...settings.landedCost, shippingTiers: tiers } });
                   }}
-                  keyboardType="decimal-pad"
-                  mono
                 />
               </View>
               {settings.landedCost.shippingTiers.length > 1 && (
@@ -378,41 +376,33 @@ export default function SettingsScreen() {
           />
 
           <Gap />
-          <Field
+          <NumberField
             label="EACH EXTRA UNIT BEYOND THE TABLE (USD)"
-            value={String(settings.landedCost.extraShippingPerUnitUsd)}
-            onChangeText={(v) =>
+            value={settings.landedCost.extraShippingPerUnitUsd}
+            onChangeValue={(n) =>
               updateSettings({
                 landedCost: {
                   ...settings.landedCost,
-                  extraShippingPerUnitUsd: parseAmount(v) || 0,
+                  extraShippingPerUnitUsd: n,
                 },
               })
             }
-            keyboardType="decimal-pad"
-            mono
           />
           <Gap />
-          <Field
+          <NumberField
             label="CLEARING FEE PER SHIPMENT (ZAR)"
-            value={String(settings.landedCost.clearingZar)}
-            onChangeText={(v) =>
+            value={settings.landedCost.clearingZar}
+            onChangeValue={(n) =>
               updateSettings({
-                landedCost: { ...settings.landedCost, clearingZar: parseAmount(v) || 0 },
+                landedCost: { ...settings.landedCost, clearingZar: n },
               })
             }
-            keyboardType="decimal-pad"
-            mono
           />
           <Gap />
-          <Field
+          <NumberField
             label="TARGET GROSS MARGIN (%)"
-            value={String(settings.targetMarginPct)}
-            onChangeText={(v) =>
-              updateSettings({ targetMarginPct: Number(v.replace(/[^0-9.]/g, "")) || 0 })
-            }
-            keyboardType="decimal-pad"
-            mono
+            value={settings.targetMarginPct}
+            onChangeValue={(n) => updateSettings({ targetMarginPct: n })}
           />
           <Text style={styles.note}>
             Used to suggest selling prices from landed cost on the price list.
