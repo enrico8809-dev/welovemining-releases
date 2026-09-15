@@ -1,156 +1,354 @@
-import React, { useMemo } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
-import { Scale } from "lucide-react-native";
+import React, { useMemo, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useNavigation } from "@react-navigation/native";
+import { CheckCircle2, ChevronRight, AlertTriangle, Scale, Share2 } from "lucide-react-native";
 import Header from "../components/Header";
 import Card from "../components/Card";
-import { Pill, SectionLabel } from "../components/ui";
+import Button from "../components/Button";
+import SegmentedControl from "../components/SegmentedControl";
+import { useToast } from "../components/Toast";
+import {
+  buildReportHtml,
+  profitAndLossHtml,
+  sharePdf,
+  trialBalanceHtml,
+} from "../lib/pdf";
 import { useLedger } from "../lib/LedgerContext";
-import { computeProfitAndLoss, computeTrialBalance } from "../lib/accounting";
-import { fmt } from "../lib/format";
-import { C, FONT_DISPLAY, FONT_DISPLAY_BOLD, FONT_MONO, R } from "../lib/theme";
+import {
+  Account,
+  computeBalances,
+  computeProfitAndLoss,
+  computeTrialBalance,
+  filterByPeriod,
+} from "../lib/accounting";
+import { PERIOD_OPTIONS, PeriodId, buildPeriod, describePeriod } from "../lib/period";
+import { reconciledToDate } from "../lib/reconcile";
+import { abs, fmt, fmtDate } from "../lib/format";
+import { C, R, S, T } from "../lib/theme";
+import { TabScreenNavigation } from "../navigation/routes";
 
 export default function ReportsScreen() {
-  const { accounts, balances } = useLedger();
+  const nav = useNavigation<TabScreenNavigation<"Reports">>();
+  const toast = useToast();
+  const { accounts, txns, openingBank, settings, reconciliations } = useLedger();
+  const [periodId, setPeriodId] = useState<PeriodId>("ytd");
+  const [sharing, setSharing] = useState<"pnl" | "tb" | null>(null);
 
-  const pnl = useMemo(() => computeProfitAndLoss(accounts, balances), [accounts, balances]);
-  const trialBalance = useMemo(() => computeTrialBalance(accounts, balances), [accounts, balances]);
-  const balanced = Math.abs(trialBalance.totalDebit - trialBalance.totalCredit) < 0.005;
-  const total = pnl.income + pnl.expenses;
-  const incomeShare = total > 0 ? pnl.income / total : 0.5;
+  const period = useMemo(
+    () => buildPeriod(periodId, settings.fyStartMonth),
+    [periodId, settings.fyStartMonth]
+  );
+
+  const periodTxns = useMemo(() => filterByPeriod(txns, period), [txns, period]);
+
+  // P&L covers the selected period only; the trial balance is a snapshot of the
+  // whole book, which is the only way its two columns can be expected to agree.
+  const pnl = useMemo(
+    () => computeProfitAndLoss(accounts, computeBalances(accounts, periodTxns, 0)),
+    [accounts, periodTxns]
+  );
+  const trial = useMemo(
+    () => computeTrialBalance(accounts, computeBalances(accounts, txns, openingBank)),
+    [accounts, txns, openingBank]
+  );
+
+  const lastReconciled = reconciledToDate(reconciliations);
+
+  const openAccount = (account: Account) =>
+    nav.navigate("AccountDetail", { accountId: account.id });
+
+  const exportPnl = async () => {
+    setSharing("pnl");
+    try {
+      const html = buildReportHtml(
+        "Profit & Loss",
+        describePeriod(period),
+        settings,
+        profitAndLossHtml(pnl)
+      );
+      await sharePdf(html, "profit-and-loss.pdf");
+    } catch {
+      toast.show("Couldn't generate the PDF", "error");
+    } finally {
+      setSharing(null);
+    }
+  };
+
+  const exportTrialBalance = async () => {
+    setSharing("tb");
+    try {
+      const html = buildReportHtml(
+        "Trial Balance",
+        "All time",
+        settings,
+        trialBalanceHtml(trial.rows, trial.totalDebit, trial.totalCredit)
+      );
+      await sharePdf(html, "trial-balance.pdf");
+    } catch {
+      toast.show("Couldn't generate the PDF", "error");
+    } finally {
+      setSharing(null);
+    }
+  };
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <Header subtitle="Reports" />
+    <ScrollView
+      style={styles.screen}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+    >
+      <Header title="REPORTS" subtitle={describePeriod(period)} />
 
-      <Card>
-        <SectionLabel style={{ marginBottom: 14 }}>PROFIT &amp; LOSS</SectionLabel>
+      <View style={styles.body}>
+        <SegmentedControl options={PERIOD_OPTIONS} value={periodId} onChange={setPeriodId} />
 
-        {/* income vs expense split bar */}
-        <View style={styles.splitTrack}>
-          <View style={[styles.splitIn, { flex: Math.max(incomeShare, 0.02) }]} />
-          <View style={[styles.splitOut, { flex: Math.max(1 - incomeShare, 0.02) }]} />
-        </View>
+        <Card index={0} title="PROFIT & LOSS">
+          <Section label="Income" total={pnl.income} color={C.green}>
+            {pnl.incomeLines.map((l) => (
+              <LineRow
+                key={l.account.id}
+                name={l.account.name}
+                amount={l.amount}
+                onPress={() => openAccount(l.account)}
+              />
+            ))}
+          </Section>
 
-        <View style={styles.line}>
-          <View style={styles.lineLeft}>
-            <View style={[styles.key, { backgroundColor: C.green }]} />
-            <Text style={styles.lineLabel}>Income</Text>
+          <Section label="Expenses" total={pnl.expenses} color={C.red}>
+            {pnl.expenseLines.map((l) => (
+              <LineRow
+                key={l.account.id}
+                name={l.account.name}
+                amount={l.amount}
+                onPress={() => openAccount(l.account)}
+              />
+            ))}
+          </Section>
+
+          <View style={styles.netRow}>
+            <Text style={styles.netLabel}>Net {pnl.net >= 0 ? "profit" : "loss"}</Text>
+            <Text style={[styles.netValue, { color: pnl.net >= 0 ? C.green : C.red }]}>
+              {fmt(pnl.net)}
+            </Text>
           </View>
-          <Text style={[styles.lineAmount, { color: C.green }]}>{fmt(pnl.income)}</Text>
-        </View>
-        <View style={styles.line}>
-          <View style={styles.lineLeft}>
-            <View style={[styles.key, { backgroundColor: C.red }]} />
-            <Text style={styles.lineLabel}>Expenses</Text>
-          </View>
-          <Text style={[styles.lineAmount, { color: C.red }]}>{fmt(pnl.expenses)}</Text>
-        </View>
 
-        <View style={styles.netBand}>
-          <Text style={styles.netLabel}>NET PROFIT / (LOSS)</Text>
-          <Text style={[styles.netAmount, { color: pnl.net >= 0 ? C.green : C.red }]}>{fmt(pnl.net)}</Text>
-        </View>
-      </Card>
-
-      <Card>
-        <View style={styles.tbHeader}>
-          <View style={styles.lineLeft}>
-            <Scale color={C.mute} size={15} />
-            <SectionLabel>TRIAL BALANCE</SectionLabel>
-          </View>
-          <Pill
-            label={balanced ? "BALANCED" : "OUT OF BALANCE"}
-            color={balanced ? C.green : C.red}
-            bg={balanced ? C.greenSoft : C.redSoft}
+          <Button
+            label="Export as PDF"
+            variant="secondary"
+            onPress={exportPnl}
+            loading={sharing === "pnl"}
+            icon={<Share2 color={C.text} size={16} />}
+            style={{ marginTop: S.lg }}
           />
-        </View>
+        </Card>
 
-        <View style={[styles.tbRow, styles.tbHeaderRow]}>
-          <Text style={[styles.tbCell, styles.tbAccountCell, styles.tbHeaderText]}>Account</Text>
-          <Text style={[styles.tbCell, styles.tbHeaderText, { textAlign: "right" }]}>Debit</Text>
-          <Text style={[styles.tbCell, styles.tbHeaderText, { textAlign: "right" }]}>Credit</Text>
-        </View>
+        <Card
+          index={1}
+          title="TRIAL BALANCE"
+          action={
+            <View style={[styles.badge, { borderColor: trial.balanced ? C.green : C.red }]}>
+              {trial.balanced ? (
+                <CheckCircle2 color={C.green} size={12} />
+              ) : (
+                <AlertTriangle color={C.red} size={12} />
+              )}
+              <Text style={[styles.badgeText, { color: trial.balanced ? C.green : C.red }]}>
+                {trial.balanced ? "BALANCED" : "OUT OF BALANCE"}
+              </Text>
+            </View>
+          }
+        >
+          <Text style={styles.tbNote}>All time · every account with a movement</Text>
 
-        {trialBalance.rows.map((row, i) => (
-          <View key={row.account.id} style={[styles.tbRow, i % 2 === 1 && styles.tbZebra]}>
-            <Text style={[styles.tbCell, styles.tbAccountCell]} numberOfLines={1}>
-              {row.account.name}
+          <View style={[styles.tbRow, styles.tbHead]}>
+            <Text style={[styles.tbCell, styles.tbAccount, styles.tbHeadText]}>Account</Text>
+            <Text style={[styles.tbCell, styles.tbHeadText, styles.right]}>Debit</Text>
+            <Text style={[styles.tbCell, styles.tbHeadText, styles.right]}>Credit</Text>
+          </View>
+
+          {trial.rows.map((row) => (
+            <Pressable
+              key={row.account.id}
+              onPress={() => openAccount(row.account)}
+              style={({ pressed }) => [styles.tbRow, pressed && styles.pressed]}
+            >
+              <Text style={[styles.tbCell, styles.tbAccount]} numberOfLines={1}>
+                {row.account.name}
+              </Text>
+              <Text style={[styles.tbCell, styles.tbAmount, styles.right]}>
+                {row.debit > 0 ? abs(row.debit) : "—"}
+              </Text>
+              <Text style={[styles.tbCell, styles.tbAmount, styles.right]}>
+                {row.credit > 0 ? abs(row.credit) : "—"}
+              </Text>
+            </Pressable>
+          ))}
+
+          <View style={[styles.tbRow, styles.tbTotal]}>
+            <Text style={[styles.tbCell, styles.tbAccount, styles.tbHeadText]}>Total</Text>
+            <Text style={[styles.tbCell, styles.tbAmount, styles.tbTotalText, styles.right]}>
+              {abs(trial.totalDebit)}
             </Text>
-            <Text style={[styles.tbCell, styles.tbAmount, { textAlign: "right" }]}>
-              {row.debit > 0 ? fmt(row.debit).replace("R ", "") : "—"}
-            </Text>
-            <Text style={[styles.tbCell, styles.tbAmount, { textAlign: "right" }]}>
-              {row.credit > 0 ? fmt(row.credit).replace("R ", "") : "—"}
+            <Text style={[styles.tbCell, styles.tbAmount, styles.tbTotalText, styles.right]}>
+              {abs(trial.totalCredit)}
             </Text>
           </View>
-        ))}
 
-        <View style={[styles.tbRow, styles.tbTotalRow]}>
-          <Text style={[styles.tbCell, styles.tbAccountCell, styles.tbHeaderText]}>Total</Text>
-          <Text style={[styles.tbCell, styles.tbAmount, styles.tbHeaderText, { textAlign: "right" }]}>
-            {fmt(trialBalance.totalDebit).replace("R ", "")}
+          <Text style={styles.tbFoot}>
+            Every entry posts an equal debit and credit, so these two columns can never
+            disagree.
           </Text>
-          <Text style={[styles.tbCell, styles.tbAmount, styles.tbHeaderText, { textAlign: "right" }]}>
-            {fmt(trialBalance.totalCredit).replace("R ", "")}
-          </Text>
-        </View>
-      </Card>
+
+          <Button
+            label="Export as PDF"
+            variant="secondary"
+            onPress={exportTrialBalance}
+            loading={sharing === "tb"}
+            icon={<Share2 color={C.text} size={16} />}
+            style={{ marginTop: S.lg }}
+          />
+        </Card>
+
+        <Card index={2} title="BANK RECONCILIATION" onPress={() => nav.navigate("Reconciliation")}>
+          <View style={styles.recRow}>
+            <View style={[styles.recIcon, lastReconciled && { borderColor: C.green }]}>
+              <Scale color={lastReconciled ? C.green : C.mute} size={19} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.recTitle}>
+                {lastReconciled ? `Reconciled to ${fmtDate(lastReconciled)}` : "Not yet reconciled"}
+              </Text>
+              <Text style={styles.recNote}>
+                {lastReconciled
+                  ? "Load a newer statement to carry the proof forward."
+                  : "Match a bank statement against the books to prove they agree."}
+              </Text>
+            </View>
+            <ChevronRight color={C.mute} size={16} />
+          </View>
+        </Card>
+      </View>
     </ScrollView>
+  );
+}
+
+function Section({
+  label,
+  total,
+  color,
+  children,
+}: {
+  label: string;
+  total: number;
+  color: string;
+  children: React.ReactNode;
+}) {
+  const empty = React.Children.count(children) === 0;
+  return (
+    <View style={styles.section}>
+      <View style={styles.sectionHead}>
+        <Text style={styles.sectionLabel}>{label}</Text>
+        <Text style={[styles.sectionTotal, { color }]}>{fmt(total)}</Text>
+      </View>
+      {empty ? <Text style={styles.none}>Nothing in this period.</Text> : children}
+    </View>
+  );
+}
+
+function LineRow({
+  name,
+  amount,
+  onPress,
+}: {
+  name: string;
+  amount: number;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.line, pressed && styles.pressed]}>
+      <Text style={styles.lineName} numberOfLines={1}>
+        {name}
+      </Text>
+      <Text style={styles.lineAmount}>{abs(amount)}</Text>
+      <ChevronRight color={C.mute} size={14} />
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.bg },
-  content: { padding: 16, paddingBottom: 48, gap: 14 },
-  splitTrack: {
+  content: { paddingBottom: S.huge },
+  body: { paddingHorizontal: S.lg, gap: S.lg },
+  section: { marginBottom: S.lg },
+  sectionHead: {
     flexDirection: "row",
-    height: 8,
-    borderRadius: 4,
-    overflow: "hidden",
-    marginBottom: 14,
-    gap: 2,
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingBottom: S.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: C.line,
+    marginBottom: S.sm,
   },
-  splitIn: { backgroundColor: C.green, borderRadius: 4 },
-  splitOut: { backgroundColor: C.red, borderRadius: 4 },
+  sectionLabel: { ...T.bodyBold, color: C.text },
+  sectionTotal: { ...T.amount },
+  none: { ...T.small, color: C.mute, paddingVertical: S.xs },
   line: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 8,
+    gap: S.sm,
+    paddingVertical: S.sm,
+    borderRadius: R.sm,
   },
-  lineLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
-  key: { width: 8, height: 8, borderRadius: 2 },
-  lineLabel: { color: C.text, fontFamily: FONT_DISPLAY, fontSize: 15 },
-  lineAmount: { fontFamily: FONT_MONO, fontSize: 15 },
-  netBand: {
+  pressed: { backgroundColor: C.panel2 },
+  lineName: { ...T.small, color: C.textDim, flex: 1 },
+  lineAmount: { ...T.amountSm, color: C.text },
+  netRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginTop: 10,
-    backgroundColor: C.panel2,
-    borderRadius: R.sm + 2,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: C.lineStrong,
+    paddingTop: S.md,
   },
-  netLabel: { color: C.mute, fontFamily: FONT_DISPLAY_BOLD, fontSize: 12, letterSpacing: 1.5 },
-  netAmount: { fontFamily: FONT_MONO, fontSize: 18 },
-  tbHeader: {
+  netLabel: { ...T.heading, color: C.text },
+  netValue: { ...T.amountLg },
+  badge: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 14,
+    gap: S.xs,
+    borderWidth: 1,
+    borderRadius: R.pill,
+    paddingHorizontal: S.sm,
+    paddingVertical: 3,
   },
+  badgeText: { ...T.label, fontSize: 9 },
+  tbNote: { ...T.caption, color: C.mute, marginBottom: S.md },
   tbRow: {
     flexDirection: "row",
-    paddingVertical: 9,
-    paddingHorizontal: 6,
-    borderRadius: 6,
+    alignItems: "center",
+    paddingVertical: S.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: C.line,
   },
-  tbZebra: { backgroundColor: "rgba(26,34,48,0.5)" },
-  tbHeaderRow: { borderBottomWidth: 1, borderBottomColor: C.line, borderRadius: 0 },
-  tbTotalRow: { borderTopWidth: 1, borderTopColor: C.line, marginTop: 4, borderRadius: 0 },
-  tbCell: { flex: 1, fontFamily: FONT_DISPLAY, fontSize: 13, color: C.text },
-  tbAccountCell: { flex: 1.6 },
-  tbHeaderText: { color: C.mute, fontFamily: FONT_DISPLAY_BOLD, fontSize: 12, letterSpacing: 0.5 },
-  tbAmount: { fontFamily: FONT_MONO, fontSize: 13 },
+  tbHead: { borderBottomColor: C.lineStrong },
+  tbTotal: { borderBottomWidth: 0, borderTopWidth: 1, borderTopColor: C.lineStrong },
+  tbCell: { flex: 1, ...T.small, color: C.textDim },
+  tbAccount: { flex: 1.7, color: C.text },
+  tbAmount: { ...T.amountSm, color: C.text },
+  tbHeadText: { ...T.label, color: C.mute },
+  tbTotalText: { color: C.text },
+  right: { textAlign: "right" },
+  tbFoot: { ...T.caption, color: C.mute, marginTop: S.md, lineHeight: 16 },
+  recRow: { flexDirection: "row", alignItems: "center", gap: S.md },
+  recIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: R.pill,
+    borderWidth: 1,
+    borderColor: C.line,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  recTitle: { ...T.bodyBold, color: C.text },
+  recNote: { ...T.caption, color: C.mute, marginTop: 3, lineHeight: 15 },
 });

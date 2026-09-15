@@ -1,74 +1,142 @@
-import React, { useMemo } from "react";
-import { Alert, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
-import { ArrowDownLeft, ArrowUpRight, BookOpen, Trash2 } from "lucide-react-native";
+import React, { useMemo, useState } from "react";
+import { FlatList, StyleSheet, Text, TextInput, View } from "react-native";
+import { useNavigation } from "@react-navigation/native";
+import { BookOpen, FileUp, Search, X } from "lucide-react-native";
+import { Pressable } from "react-native";
 import Header from "../components/Header";
-import { EmptyState, IconBadge } from "../components/ui";
+import TxnRow from "../components/TxnRow";
+import SwipeableRow from "../components/SwipeableRow";
+import SegmentedControl from "../components/SegmentedControl";
+import EmptyState from "../components/EmptyState";
+import { useToast } from "../components/Toast";
 import { useLedger } from "../lib/LedgerContext";
-import { Txn, findAccount } from "../lib/accounting";
-import { fmt } from "../lib/format";
-import { C, FONT_DISPLAY_BOLD, FONT_MONO, R } from "../lib/theme";
+import { Txn, filterByPeriod, searchTxns, sortByDateDesc } from "../lib/accounting";
+import { PERIOD_OPTIONS, PeriodId, buildPeriod } from "../lib/period";
+import { abs } from "../lib/format";
+import { C, R, S, T } from "../lib/theme";
+import { TabScreenNavigation } from "../navigation/routes";
+
+type Flow = "all" | "in" | "out";
+
+const FLOW_OPTIONS: { id: Flow; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "in", label: "Money in" },
+  { id: "out", label: "Money out" },
+];
 
 export default function LedgerScreen() {
-  const { accounts, txns, removeTxn } = useLedger();
+  const nav = useNavigation<TabScreenNavigation<"Ledger">>();
+  const toast = useToast();
+  const { accounts, txns, removeTxn, settings } = useLedger();
 
-  const sorted = useMemo(
-    () => [...txns].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id.localeCompare(a.id))),
-    [txns]
+  const [query, setQuery] = useState("");
+  const [flow, setFlow] = useState<Flow>("all");
+  const [periodId, setPeriodId] = useState<PeriodId>("all");
+
+  const period = useMemo(
+    () => buildPeriod(periodId, settings.fyStartMonth),
+    [periodId, settings.fyStartMonth]
   );
 
-  function confirmDelete(txn: Txn) {
-    Alert.alert("Delete transaction?", `${txn.desc} — ${fmt(txn.amount)}`, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Delete", style: "destructive", onPress: () => removeTxn(txn.id) },
-    ]);
-  }
+  const visible = useMemo(() => {
+    let rows = filterByPeriod(txns, period);
+    if (flow !== "all") {
+      rows = rows.filter((t) => (flow === "in" ? t.debit === "bank" : t.credit === "bank"));
+    }
+    return sortByDateDesc(searchTxns(rows, accounts, query));
+  }, [txns, period, flow, query, accounts]);
 
-  function renderItem({ item }: { item: Txn }) {
-    const isMoneyIn = item.debit === "bank";
-    const otherAccountId = item.debit === "bank" ? item.credit : item.debit;
-    const otherAccount = findAccount(accounts, otherAccountId);
+  const total = useMemo(
+    () =>
+      visible.reduce((sum, t) => sum + (t.debit === "bank" ? t.amount : -t.amount), 0),
+    [visible]
+  );
 
-    return (
-      <View style={styles.card}>
-        <IconBadge tint={isMoneyIn ? C.greenSoft : C.redSoft} size={38}>
-          {isMoneyIn ? (
-            <ArrowDownLeft color={C.green} size={19} />
-          ) : (
-            <ArrowUpRight color={C.red} size={19} />
-          )}
-        </IconBadge>
-        <View style={styles.rowMain}>
-          <Text style={styles.desc} numberOfLines={1}>
-            {item.desc}
-          </Text>
-          <Text style={styles.meta} numberOfLines={1}>
-            {item.date} · {otherAccount?.name ?? otherAccountId}
-          </Text>
-        </View>
-        <Text style={[styles.amount, { color: isMoneyIn ? C.green : C.red }]}>
-          {isMoneyIn ? "+" : "−"} {fmt(item.amount).replace("R ", "R")}
-        </Text>
-        <Pressable onPress={() => confirmDelete(item)} hitSlop={10} style={styles.trash}>
-          <Trash2 color={C.mute} size={17} />
-        </Pressable>
-      </View>
-    );
-  }
+  const handleDelete = (txn: Txn) => {
+    if (txn.sourceDoc) {
+      toast.show("Edit the invoice instead — this entry belongs to it.", "warning");
+      return;
+    }
+    removeTxn(txn.id);
+    toast.show("Transaction deleted");
+  };
+
+  const handleEdit = (txn: Txn) => {
+    if (txn.sourceDoc) {
+      nav.navigate("DocDetail", { docId: txn.sourceDoc });
+      return;
+    }
+    nav.navigate("Add", { editId: txn.id });
+  };
 
   return (
     <View style={styles.screen}>
-      <Header subtitle={`${txns.length} transaction${txns.length === 1 ? "" : "s"}`} />
+      <Header
+        title="LEDGER"
+        subtitle={`${visible.length} entries`}
+        action={
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Import bank statement"
+            hitSlop={10}
+            onPress={() => nav.navigate("BankImport")}
+            style={styles.importBtn}
+          >
+            <FileUp color={C.mute} size={19} />
+          </Pressable>
+        }
+      />
+
+      <View style={styles.filters}>
+        <View style={styles.searchField}>
+          <Search color={C.mute} size={17} />
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search description, account, amount"
+            placeholderTextColor={C.mute}
+            style={styles.searchInput}
+            selectionColor={C.orange}
+            autoCorrect={false}
+          />
+          {query.length > 0 && (
+            <Pressable hitSlop={10} onPress={() => setQuery("")}>
+              <X color={C.mute} size={16} />
+            </Pressable>
+          )}
+        </View>
+
+        <SegmentedControl options={FLOW_OPTIONS} value={flow} onChange={setFlow} />
+        <SegmentedControl options={PERIOD_OPTIONS} value={periodId} onChange={setPeriodId} />
+
+        <View style={styles.totalRow}>
+          <Text style={styles.totalLabel}>NET IN VIEW</Text>
+          <Text style={[styles.totalValue, { color: total >= 0 ? C.green : C.red }]}>
+            {total >= 0 ? "+" : "−"} R {abs(total)}
+          </Text>
+        </View>
+      </View>
+
       <FlatList
-        data={sorted}
+        data={visible}
         keyExtractor={(t) => t.id}
-        renderItem={renderItem}
-        contentContainerStyle={styles.listContent}
-        ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+        contentContainerStyle={styles.list}
+        ItemSeparatorComponent={() => <View style={styles.sep} />}
+        showsVerticalScrollIndicator={false}
+        renderItem={({ item }) => (
+          <SwipeableRow onDelete={() => handleDelete(item)} enabled={!item.sourceDoc}>
+            <TxnRow txn={item} accounts={accounts} onPress={() => handleEdit(item)} />
+          </SwipeableRow>
+        )}
         ListEmptyComponent={
           <EmptyState
-            icon={<BookOpen color={C.mute} size={24} />}
-            title="No transactions yet"
-            hint="Tap the orange + button to record your first sale or expense."
+            icon={<BookOpen color={C.mute} size={28} />}
+            title={query || flow !== "all" ? "Nothing matches" : "No transactions yet"}
+            body={
+              query || flow !== "all"
+                ? "Try a different search or clear the filters."
+                : "Head to the Add tab to record your first transaction. Pick what happened and the app books the double entry for you."
+            }
           />
         }
       />
@@ -78,21 +146,36 @@ export default function LedgerScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.bg },
-  listContent: { paddingHorizontal: 16, paddingBottom: 48, flexGrow: 1 },
-  card: {
+  importBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: R.md,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: C.panel2,
+    borderWidth: 1,
+    borderColor: C.line,
+  },
+  filters: { paddingHorizontal: S.lg, gap: S.md, paddingBottom: S.md },
+  searchField: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    backgroundColor: C.panel,
-    borderWidth: 1,
-    borderColor: C.lineSoft,
+    gap: S.sm,
+    backgroundColor: C.panel2,
     borderRadius: R.md,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: C.line,
+    paddingHorizontal: S.md,
   },
-  rowMain: { flex: 1 },
-  desc: { color: C.text, fontFamily: FONT_DISPLAY_BOLD, fontSize: 15 },
-  meta: { color: C.mute, fontFamily: FONT_MONO, fontSize: 11, marginTop: 3 },
-  amount: { fontFamily: FONT_MONO, fontSize: 14 },
-  trash: { padding: 4 },
+  searchInput: { ...T.body, color: C.text, flex: 1, paddingVertical: S.md },
+  totalRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingTop: S.xs,
+  },
+  totalLabel: { ...T.label, color: C.mute },
+  totalValue: { ...T.amount },
+  list: { paddingHorizontal: S.lg, paddingBottom: S.huge, flexGrow: 1 },
+  sep: { height: 1, backgroundColor: C.line },
 });

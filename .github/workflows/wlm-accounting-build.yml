@@ -24,11 +24,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-          cache-dependency-path: wlm-accounting/package-lock.json
 
       - name: Install JS dependencies
-        run: npm ci
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test the accounting engine
+        run: npm test
 
       - name: Generate native Android project
         run: npx expo prebuild --platform android --no-install
@@ -71,28 +75,51 @@ jobs:
 
       - name: Build release APK
         working-directory: wlm-accounting/android
-        run: ./gradlew assembleRelease --no-daemon
+        # arm64-v8a only. React Native defaults to building all four ABIs into
+        # one APK, which tripled the download for slices no modern phone uses.
+        # The RN Gradle plugin feeds this property straight into ndk.abiFilters.
+        #
+        # The runner sometimes fetches a truncated Android NDK archive, which
+        # fails the whole build ~2 minutes in with "Archive is not a ZIP
+        # archive". Retrying costs a couple of minutes; losing a 25-minute
+        # build to a bad download costs a lot more.
+        run: |
+          for attempt in 1 2; do
+            if ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon; then
+              exit 0
+            fi
+            echo "::warning::Gradle attempt $attempt failed; retrying once."
+            rm -rf "$ANDROID_SDK_ROOT/ndk/27.1.12297006" 2>/dev/null || true
+            sleep 15
+          done
+          exit 1
 
-      - name: Stage APK for release
+      - name: Stage APK under a stable name
+        working-directory: wlm-accounting
         run: cp android/app/build/outputs/apk/release/app-release.apk WLM-Accounting-latest.apk
 
+      # A release gives a permanent download link; artifacts expire after 30 days.
       - name: Publish Release
-        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
           name: WLM Accounting (latest)
           tag_name: accounting-latest
           target_commitish: ${{ github.sha }}
           body: |
-            **WLM Accounting** — Module 1 (double-entry ledger, P&L, trial balance).
+            **WLM Accounting** — double-entry books for WeLoveMining.
+
+            Ledger and reports · bank import (FNB CSV/OFX) · invoices and quotes ·
+            stock with landed cost · reconciliation · PDF export · optional cloud
+            sync over your own Cloudflare Tunnel.
 
             Download `WLM-Accounting-latest.apk` on your phone and tap it to
             install (allow "install from unknown sources" if prompted).
           files: wlm-accounting/WLM-Accounting-latest.apk
           fail_on_unmatched_files: true
 
-      - name: Upload APK artifact (manual runs)
-        if: github.event_name != 'push'
+      # Also kept as an artifact, so a build can be fetched per-run when
+      # comparing two of them.
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: WLM-Accounting-${{ github.run_number }}.apk

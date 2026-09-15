@@ -1,145 +1,216 @@
-import React, { useMemo } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import React, { useMemo, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
-import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { Landmark, TrendingDown, TrendingUp } from "lucide-react-native";
+import { Settings as SettingsIcon, TrendingDown, TrendingUp } from "lucide-react-native";
 import Header from "../components/Header";
 import Card from "../components/Card";
-import ModuleRoadmap from "../components/ModuleRoadmap";
-import { Amount, IconBadge, Pill, SectionLabel } from "../components/ui";
+import StatTile from "../components/StatTile";
+import Sparkline from "../components/Sparkline";
+import CashFlowChart from "../components/CashFlowChart";
+import ExpenseBars from "../components/ExpenseBars";
+import SegmentedControl from "../components/SegmentedControl";
+import { DashboardSkeleton } from "../components/Skeleton";
 import { useLedger } from "../lib/LedgerContext";
-import { computeProfitAndLoss, displayBalance, topExpenses } from "../lib/accounting";
+import {
+  Account,
+  bankBalanceSeries,
+  computeBalances,
+  computeProfitAndLoss,
+  filterByPeriod,
+  monthlyCashFlow,
+  topExpenses,
+} from "../lib/accounting";
+import { summariseReceivables } from "../lib/invoices";
+import { PERIOD_OPTIONS, PeriodId, buildPeriod, describePeriod } from "../lib/period";
 import { fmt } from "../lib/format";
-import { C, FONT_DISPLAY, FONT_MONO } from "../lib/theme";
-import { ComingSoonRoute, RootStackParamList } from "../navigation/routes";
+import { C, R, S, T } from "../lib/theme";
+import { TabScreenNavigation } from "../navigation/routes";
 
 export default function HomeScreen() {
-  const { accounts, balances } = useLedger();
-  const rootNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const nav = useNavigation<TabScreenNavigation<"Home">>();
+  const { loading, accounts, txns, docs, openingBank, balances, settings } = useLedger();
+  const [periodId, setPeriodId] = useState<PeriodId>("ytd");
 
-  function openModule(route: ComingSoonRoute) {
-    rootNavigation.getParent<NativeStackNavigationProp<RootStackParamList>>()?.navigate(route) ??
-      rootNavigation.navigate(route);
-  }
+  const period = useMemo(
+    () => buildPeriod(periodId, settings.fyStartMonth),
+    [periodId, settings.fyStartMonth]
+  );
+
+  // The bank balance is a point-in-time figure, so it always reflects every
+  // entry ever posted. Income and expenses are flows, so they respect the filter.
+  const periodTxns = useMemo(() => filterByPeriod(txns, period), [txns, period]);
+  const periodBalances = useMemo(
+    () => computeBalances(accounts, periodTxns, 0),
+    [accounts, periodTxns]
+  );
 
   const bankBalance = balances.bank ?? 0;
-  const pnl = useMemo(() => computeProfitAndLoss(accounts, balances), [accounts, balances]);
-  const top = useMemo(() => topExpenses(accounts, balances), [accounts, balances]);
-  const maxExpense = top.length ? top[0].amount : 0;
-  const profitable = pnl.net >= 0;
+  const pnl = useMemo(
+    () => computeProfitAndLoss(accounts, periodBalances),
+    [accounts, periodBalances]
+  );
+  const expenses = useMemo(
+    () => topExpenses(accounts, periodBalances),
+    [accounts, periodBalances]
+  );
+  const trend = useMemo(() => bankBalanceSeries(txns, openingBank), [txns, openingBank]);
+  const cashFlow = useMemo(() => monthlyCashFlow(txns), [txns]);
+  const receivables = useMemo(() => summariseReceivables(docs), [docs]);
+
+  if (loading) {
+    return (
+      <View style={styles.screen}>
+        <Header />
+        <DashboardSkeleton />
+      </View>
+    );
+  }
+
+  const openAccount = (account: Account) =>
+    nav.navigate("AccountDetail", { accountId: account.id });
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <Header />
+    <ScrollView
+      style={styles.screen}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+    >
+      <Header
+        action={
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Settings"
+            hitSlop={10}
+            onPress={() => nav.navigate("Settings")}
+            style={styles.settingsBtn}
+          >
+            <SettingsIcon color={C.mute} size={19} />
+          </Pressable>
+        }
+      />
 
-      {/* Hero — bank balance with net P/L pill */}
-      <Card raised accent="orange" style={styles.hero}>
-        <View style={styles.heroTop}>
-          <View style={styles.heroLabelRow}>
-            <IconBadge tint={C.orangeSoft} size={30}>
-              <Landmark color={C.orange} size={16} />
-            </IconBadge>
-            <SectionLabel>BANK BALANCE</SectionLabel>
+      <View style={styles.body}>
+        <SegmentedControl options={PERIOD_OPTIONS} value={periodId} onChange={setPeriodId} />
+        <Text style={styles.periodNote}>{describePeriod(period)}</Text>
+
+        {/* Hero figure — the one number the dashboard leads with. */}
+        <Card index={0}>
+          <View style={styles.heroRow}>
+            <View style={styles.heroMain}>
+              <Text style={styles.heroLabel}>BANK BALANCE</Text>
+              <Text
+                style={[styles.hero, bankBalance < 0 && { color: C.red }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+              >
+                {fmt(bankBalance)}
+              </Text>
+              <Text style={styles.heroNote}>
+                {bankBalance < 0 ? "Overdrawn" : "Across all time"}
+              </Text>
+            </View>
+            <Sparkline
+              data={trend}
+              color={bankBalance < 0 ? C.red : C.orange}
+              width={104}
+              height={56}
+            />
           </View>
-          <Pill
-            label={`${profitable ? "▲" : "▼"} ${fmt(pnl.net)}`}
-            color={profitable ? C.green : C.red}
-            bg={profitable ? C.greenSoft : C.redSoft}
+        </Card>
+
+        <View style={styles.row}>
+          <StatTile
+            label="INCOME"
+            value={fmt(pnl.income)}
+            color={C.green}
+            compact
+            delta={{ text: period.label, good: true }}
+          />
+          <StatTile
+            label="EXPENSES"
+            value={fmt(pnl.expenses)}
+            color={C.red}
+            compact
+            delta={{ text: period.label, good: false }}
           />
         </View>
-        <Amount value={bankBalance} size={40} style={styles.heroAmount} />
-        <Text style={styles.heroSub}>FNB Business · net profit / (loss) to date</Text>
-      </Card>
 
-      {/* Money in / out tiles */}
-      <View style={styles.row}>
-        <Card style={styles.half}>
-          <View style={styles.tileHead}>
-            <IconBadge tint={C.greenSoft} size={32}>
-              <TrendingUp color={C.green} size={17} />
-            </IconBadge>
-            <SectionLabel>INCOME</SectionLabel>
+        <Card accent="orange" index={1}>
+          <View style={styles.netRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.heroLabel}>NET PROFIT / (LOSS)</Text>
+              <Text style={[styles.net, { color: pnl.net >= 0 ? C.green : C.red }]}>
+                {fmt(pnl.net)}
+              </Text>
+            </View>
+            <View style={[styles.netIcon, { borderColor: pnl.net >= 0 ? C.green : C.red }]}>
+              {pnl.net >= 0 ? (
+                <TrendingUp color={C.green} size={20} />
+              ) : (
+                <TrendingDown color={C.red} size={20} />
+              )}
+            </View>
           </View>
-          <Amount value={pnl.income} size={22} color={C.green} style={styles.tileAmount} />
         </Card>
-        <Card style={styles.half}>
-          <View style={styles.tileHead}>
-            <IconBadge tint={C.redSoft} size={32}>
-              <TrendingDown color={C.red} size={17} />
-            </IconBadge>
-            <SectionLabel>EXPENSES</SectionLabel>
-          </View>
-          <Amount value={pnl.expenses} size={22} color={C.red} style={styles.tileAmount} />
+
+        {receivables.unpaidCount > 0 && (
+          <Card
+            index={2}
+            title="AWAITING PAYMENT"
+            onPress={() => nav.navigate("Invoices")}
+          >
+            <Text style={styles.receivable}>{fmt(receivables.outstanding)}</Text>
+            <Text style={styles.receivableNote}>
+              {receivables.unpaidCount} unpaid invoice
+              {receivables.unpaidCount === 1 ? "" : "s"}
+              {receivables.overdue > 0 ? ` · ${fmt(receivables.overdue)} overdue` : ""}
+            </Text>
+          </Card>
+        )}
+
+        <Card index={3} title="CASH FLOW · LAST 6 MONTHS">
+          <CashFlowChart data={cashFlow} />
+        </Card>
+
+        <Card index={4} title="TOP EXPENSES">
+          <ExpenseBars data={expenses} onSelect={openAccount} />
         </Card>
       </View>
-
-      {/* Top expenses */}
-      <Card>
-        <SectionLabel style={{ marginBottom: 14 }}>TOP EXPENSES</SectionLabel>
-        {top.length === 0 ? (
-          <Text style={styles.muted}>No expenses recorded yet.</Text>
-        ) : (
-          top.map(({ account, amount }, i) => {
-            const display = displayBalance(account, amount);
-            const width = maxExpense > 0 ? Math.max(6, (amount / maxExpense) * 100) : 0;
-            return (
-              <View key={account.id} style={[styles.expenseRow, i === top.length - 1 && { marginBottom: 0 }]}>
-                <View style={styles.expenseTop}>
-                  <Text style={styles.expenseName} numberOfLines={1}>
-                    {account.name}
-                  </Text>
-                  <Text style={styles.expenseAmount}>{fmt(display)}</Text>
-                </View>
-                <View style={styles.barTrack}>
-                  <View style={[styles.barFill, { width: `${width}%` }]} />
-                </View>
-              </View>
-            );
-          })
-        )}
-      </Card>
-
-      <ModuleRoadmap onOpen={openModule} />
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.bg },
-  content: { padding: 16, paddingBottom: 48, gap: 14 },
-  hero: { paddingVertical: 20 },
-  heroTop: {
-    flexDirection: "row",
+  content: { paddingBottom: S.huge },
+  body: { paddingHorizontal: S.lg, gap: S.lg },
+  settingsBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: R.md,
     alignItems: "center",
-    justifyContent: "space-between",
-  },
-  heroLabelRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  heroAmount: { marginTop: 14 },
-  heroSub: { color: C.mute, fontFamily: FONT_MONO, fontSize: 11, marginTop: 8, letterSpacing: 0.4 },
-  row: { flexDirection: "row", gap: 14 },
-  half: { flex: 1 },
-  tileHead: { flexDirection: "row", alignItems: "center", gap: 8 },
-  tileAmount: { marginTop: 12 },
-  muted: { color: C.mute, fontFamily: FONT_DISPLAY, fontSize: 14 },
-  expenseRow: { marginBottom: 14 },
-  expenseTop: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "baseline",
-    marginBottom: 7,
-    gap: 10,
-  },
-  expenseName: { flex: 1, color: C.text, fontFamily: FONT_DISPLAY, fontSize: 14 },
-  expenseAmount: { color: C.mute, fontFamily: FONT_MONO, fontSize: 12 },
-  barTrack: {
-    height: 7,
-    borderRadius: 4,
+    justifyContent: "center",
     backgroundColor: C.panel2,
-    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: C.line,
   },
-  barFill: {
-    height: "100%",
-    borderRadius: 4,
-    backgroundColor: C.orange,
+  periodNote: { ...T.caption, color: C.mute, marginTop: -S.sm },
+  heroRow: { flexDirection: "row", alignItems: "center", gap: S.md },
+  heroMain: { flex: 1 },
+  heroLabel: { ...T.label, color: C.mute },
+  hero: { ...T.hero, color: C.text, marginTop: S.xs },
+  heroNote: { ...T.caption, color: C.mute, marginTop: S.xs },
+  row: { flexDirection: "row", gap: S.md },
+  netRow: { flexDirection: "row", alignItems: "center", gap: S.md },
+  net: { ...T.amountLg, fontSize: 26, marginTop: S.xs },
+  netIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: R.pill,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
+  receivable: { ...T.amountLg, color: C.amber },
+  receivableNote: { ...T.small, color: C.mute, marginTop: S.xs },
 });

@@ -1,32 +1,79 @@
 import React from "react";
-import { Image, StyleSheet, Text, View } from "react-native";
-import { C, FONT_DISPLAY_BOLD, FONT_MONO, R } from "../lib/theme";
+import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ChevronLeft } from "lucide-react-native";
+import { C, R, S, T } from "../lib/theme";
+import * as haptics from "../lib/haptics";
 
 const WLM_MARK = require("../assets/wlm-mark.png");
 
-/** Brand header: glowing logo badge + split-color wordmark + live date chip. */
-export default function Header({ subtitle }: { subtitle?: string }) {
+interface HeaderProps {
+  /** Replaces the brand lockup with a title + back button on pushed screens. */
+  title?: string;
+  subtitle?: string;
+  onBack?: () => void;
+  action?: React.ReactNode;
+}
+
+/**
+ * Brand header: glowing logo badge, split-colour wordmark, and a date chip when
+ * there's room for it. The date only shows on the brand lockup — on a pushed
+ * screen the subtitle is carrying more useful information.
+ */
+export default function Header({ title, subtitle, onBack, action }: HeaderProps) {
+  const insets = useSafeAreaInsets();
+  const isBrand = !title && !onBack;
+
   const today = new Date().toLocaleDateString("en-ZA", {
     weekday: "short",
     day: "numeric",
     month: "short",
   });
+
   return (
-    <View style={styles.row}>
-      <View style={styles.badgeOuter}>
-        <View style={styles.badge}>
-          <Image source={WLM_MARK} style={styles.mark} resizeMode="contain" />
+    <View style={[styles.row, { paddingTop: insets.top + S.md }]}>
+      {onBack ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          hitSlop={12}
+          onPress={() => {
+            haptics.tap();
+            onBack();
+          }}
+          style={styles.back}
+        >
+          <ChevronLeft color={C.text} size={22} />
+        </Pressable>
+      ) : (
+        <View style={styles.badgeOuter}>
+          <View style={styles.badge}>
+            <Image source={WLM_MARK} style={styles.mark} resizeMode="contain" />
+          </View>
         </View>
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.title}>
-          <Text style={{ color: C.orange }}>WLM</Text> ACCOUNTING
+      )}
+
+      <View style={styles.titles}>
+        {title ? (
+          <Text style={styles.title} numberOfLines={1}>
+            {title}
+          </Text>
+        ) : (
+          <Text style={styles.title} numberOfLines={1}>
+            <Text style={{ color: C.orange }}>WLM</Text> ACCOUNTING
+          </Text>
+        )}
+        <Text style={styles.subtitle} numberOfLines={1}>
+          {subtitle ?? "WeLoveMining Pty Ltd"}
         </Text>
-        <Text style={styles.subtitle}>{subtitle ?? "WeLoveMining Pty Ltd"}</Text>
       </View>
-      <View style={styles.dateChip}>
-        <Text style={styles.dateText}>{today}</Text>
-      </View>
+
+      {action}
+      {isBrand && !action && (
+        <View style={styles.dateChip}>
+          <Text style={styles.dateText}>{today}</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -35,10 +82,9 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 18,
-    gap: 12,
+    paddingHorizontal: S.lg,
+    paddingBottom: S.lg,
+    gap: S.md,
   },
   badgeOuter: {
     padding: 2,
@@ -56,27 +102,27 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     overflow: "hidden",
   },
+  back: {
+    width: 42,
+    height: 42,
+    borderRadius: R.md,
+    backgroundColor: C.panel2,
+    borderWidth: 1,
+    borderColor: C.lineSoft,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   mark: { width: 30, height: 30 },
-  title: {
-    color: C.text,
-    fontFamily: FONT_DISPLAY_BOLD,
-    fontSize: 20,
-    letterSpacing: 1.2,
-  },
-  subtitle: {
-    color: C.mute,
-    fontFamily: FONT_MONO,
-    fontSize: 11,
-    letterSpacing: 0.5,
-    marginTop: 1,
-  },
+  titles: { flex: 1 },
+  title: { ...T.title, color: C.text },
+  subtitle: { ...T.caption, color: C.mute, marginTop: 1 },
   dateChip: {
     backgroundColor: C.panel,
     borderWidth: 1,
     borderColor: C.lineSoft,
     borderRadius: R.pill,
-    paddingHorizontal: 12,
+    paddingHorizontal: S.md,
     paddingVertical: 6,
   },
-  dateText: { color: C.mute, fontFamily: FONT_MONO, fontSize: 11 },
+  dateText: { ...T.caption, color: C.mute },
 });
