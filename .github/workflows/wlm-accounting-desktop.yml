@@ -11,6 +11,13 @@ on:
       - "wlm-accounting-desktop/**"
       - "wlm-accounting/src/lib/**"
       - ".github/workflows/wlm-accounting-desktop.yml"
+  # Checked on pull requests too, but only as far as typecheck and tests — a
+  # branch has no business publishing to the release everyone downloads from.
+  pull_request:
+    paths:
+      - "wlm-accounting-desktop/**"
+      - "wlm-accounting/src/lib/**"
+      - ".github/workflows/wlm-accounting-desktop.yml"
   workflow_dispatch:
 
 permissions:
@@ -53,6 +60,7 @@ jobs:
   build:
     name: Build Setup.exe
     needs: test
+    if: github.event_name != 'pull_request'
     runs-on: windows-latest
     defaults:
       run:
