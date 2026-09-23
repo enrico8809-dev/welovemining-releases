@@ -98,30 +98,32 @@ jobs:
         working-directory: wlm-accounting
         run: cp android/app/build/outputs/apk/release/app-release.apk WLM-Accounting-latest.apk
 
-      # A release gives a permanent download link; artifacts expire after 30 days.
+      - name: Read the app version
+        id: version
+        working-directory: wlm-accounting
+        run: echo "v=$(node -p "require('./app.json').expo.version")" >> "$GITHUB_OUTPUT"
+
+      # One download, one name, one link. The per-run artifact this used to keep
+      # alongside the release was how a months-old build got installed by
+      # mistake, and no version was visible to tell them apart — so the build is
+      # published in exactly one place and the release says which version it is.
       - name: Publish Release
         uses: softprops/action-gh-release@v2
         with:
-          name: WLM Accounting (latest)
+          name: WLM Accounting v${{ steps.version.outputs.v }}
           tag_name: accounting-latest
           target_commitish: ${{ github.sha }}
           body: |
-            **WLM Accounting** — double-entry books for WeLoveMining.
+            **WLM Accounting v${{ steps.version.outputs.v }}** — double-entry books
+            for WeLoveMining.
 
             Ledger and reports · bank import (FNB CSV/OFX) · invoices and quotes ·
             stock with landed cost · reconciliation · PDF export · optional cloud
             sync over your own Cloudflare Tunnel.
 
             Download `WLM-Accounting-latest.apk` on your phone and tap it to
-            install (allow "install from unknown sources" if prompted).
+            install (allow "install from unknown sources" if prompted). Settings
+            shows the version once it's installed — it should read
+            ${{ steps.version.outputs.v }}.
           files: wlm-accounting/WLM-Accounting-latest.apk
           fail_on_unmatched_files: true
-
-      # Also kept as an artifact, so a build can be fetched per-run when
-      # comparing two of them.
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: WLM-Accounting-${{ github.run_number }}.apk
-          path: wlm-accounting/android/app/build/outputs/apk/release/app-release.apk
-          retention-days: 30
