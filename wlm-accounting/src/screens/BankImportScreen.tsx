@@ -50,7 +50,7 @@ type Overrides = Record<string, { recipeId: string; accountId?: string }>;
 export default function BankImportScreen() {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const toast = useToast();
-  const { accounts, txns, addTxn } = useLedger();
+  const { accounts, txns, addTxns } = useLedger();
 
   const [candidates, setCandidates] = useState<ImportCandidate[] | null>(null);
   const [overrides, setOverrides] = useState<Overrides>({});
@@ -131,15 +131,19 @@ export default function BankImportScreen() {
           text: "Post",
           onPress: async () => {
             setBusy(true);
-            let posted = 0;
-            for (const c of candidates) {
-              if (!c.selected) continue;
-              const choice = choiceFor(c);
-              const txn = candidateToTxn(c, choice.recipeId, choice.accountId);
-              if (!txn) continue;
-              await addTxn(txn);
-              posted++;
-            }
+            // Built as one batch and posted once. Adding them one at a time
+            // meant each call rebuilt the books from the same snapshot, so only
+            // the last line survived while the toast reported the full count.
+            const batch = candidates
+              .filter((c) => c.selected)
+              .map((c) => {
+                const choice = choiceFor(c);
+                return candidateToTxn(c, choice.recipeId, choice.accountId);
+              })
+              .filter((t): t is Txn => t !== null);
+
+            await addTxns(batch);
+            const posted = batch.length;
             setBusy(false);
             setCandidates(null);
             setOverrides({});

@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noFallthroughCasesInSwitch": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "types": ["jest", "vite/client"],
+    "paths": {
+      // The accounting engine is shared with the phone app rather than copied.
+      // Every module behind this alias is plain TypeScript with no React Native
+      // or Expo imports, which is what makes one engine possible at all.
+      "@engine/*": ["../wlm-accounting/src/lib/*"]
+    }
+  },
+  "include": ["src", "scripts", "vite.config.mts"]
+}

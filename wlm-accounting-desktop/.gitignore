@@ -1,0 +1,5 @@
+node_modules/
+# Build output: the renderer bundle, the compiled main process, and the installer.
+dist/
+dist-electron/
+release/

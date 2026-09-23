@@ -8,7 +8,7 @@
 // (wlm-accounting-server/src/merge.ts). Two sides resolving a conflict
 // differently is how data quietly diverges.
 
-import { Ledger, Settings, normaliseLedger } from "./storage";
+import { Ledger, Settings, normaliseLedger } from "./ledgerModel";
 import { Txn } from "./accounting";
 import { BusinessDoc } from "./invoices";
 import { StockMovement } from "./inventory";
