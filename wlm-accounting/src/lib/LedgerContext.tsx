@@ -11,8 +11,9 @@ import { Account, SEED_ACCOUNTS, Txn, computeBalances } from "./accounting";
 import { BusinessDoc, postingsForDocs } from "./invoices";
 import { StockMovement, postingsForMovements } from "./inventory";
 import { Reconciliation } from "./reconcile";
-import { CloudSession, SyncOutcome, live, syncOnce } from "./sync";
+import { CloudSession, SyncOutcome, live, observeLedger, syncOnce } from "./sync";
 import * as ops from "./ledgerOps";
+import { SyncReason, SyncSchedule } from "./syncSchedule";
 import { LedgerWriter } from "./ledgerOps";
 import { findProduct, productLabel } from "./catalogue";
 import { EMPTY_LEDGER, Ledger, Settings } from "./ledgerModel";
@@ -69,6 +70,10 @@ interface LedgerContextValue {
   connectCloud: (session: CloudSession) => Promise<void>;
   disconnectCloud: () => Promise<void>;
   syncNow: () => Promise<SyncOutcome>;
+  /** True while there are local changes the server hasn't been told about. */
+  pendingSync: boolean;
+  /** Called by each app when its window or screen comes back to the front. */
+  syncOnReturn: () => void;
 }
 
 const LedgerContext = createContext<LedgerContextValue | undefined>(undefined);
@@ -97,11 +102,23 @@ export function LedgerProvider({
   }
   const writer = writerRef.current;
 
+  // Every local change goes through here, so this is where the schedule is told
+  // there is something to send.
+  const scheduleRef = useRef<SyncSchedule | null>(null);
+  if (!scheduleRef.current) scheduleRef.current = new SyncSchedule();
+  const schedule = scheduleRef.current;
+
+  const [pendingSync, setPendingSync] = useState(false);
+
   const apply = useCallback(
-    async (change: ops.LedgerChange) => {
+    async (change: ops.LedgerChange, local = true) => {
       await writer.apply(change);
+      if (local) {
+        schedule.noteChange(Date.now());
+        setPendingSync(true);
+      }
     },
-    [writer]
+    [writer, schedule]
   );
 
   useEffect(() => {
@@ -109,6 +126,9 @@ export function LedgerProvider({
     Promise.all([persistence.loadLedger(), persistence.loadSession()]).then(
       ([loaded, session]) => {
         if (cancelled) return;
+        // Stamps must keep going forwards across a restart, even if the clock
+        // has stepped back since the app was last open.
+        observeLedger(loaded);
         writer.adopt(loaded);
         setCloud(session);
         setLoading(false);
@@ -172,6 +192,7 @@ export function LedgerProvider({
       return outcome;
     }
     setSyncing(true);
+    schedule.noteStarted(Date.now());
     try {
       // The merged ledger replaces what's here wholesale, so it goes through the
       // writer too — anything captured while the request was in flight is lost
@@ -179,16 +200,46 @@ export function LedgerProvider({
       // React's in step.
       const result = await syncOnce(cloud, writer.value);
       if (result.outcome.ok) {
-        await apply(ops.replace(result.ledger));
+        await apply(ops.replace(result.ledger), false);
         setCloud(result.session);
         await persistence.saveSession(result.session);
       }
       setLastSync(result.outcome);
+      schedule.noteFinished(Date.now(), result.outcome.ok);
+      setPendingSync(schedule.hasUnsentWork);
       return result.outcome;
     } finally {
       setSyncing(false);
     }
-  }, [cloud, apply, persistence, writer]);
+  }, [cloud, apply, persistence, writer, schedule]);
+
+  /**
+   * The books keep themselves up to date.
+   *
+   * One timer, asking the schedule on each tick whether anything is due rather
+   * than holding a timer per reason. Ticking often and syncing rarely is the
+   * cheap way round: the tick costs nothing, and every decision about whether
+   * an exchange is worth making lives in one tested place.
+   */
+  useEffect(() => {
+    if (!cloud) return;
+
+    let opened = true;
+    const tick = () => {
+      const reason: SyncReason | null = schedule.due(Date.now(), opened);
+      opened = false;
+      if (reason) void syncNow();
+    };
+
+    tick();
+    const timer = setInterval(tick, 2_000);
+    return () => clearInterval(timer);
+  }, [cloud, schedule, syncNow]);
+
+  const syncOnReturn = useCallback(() => {
+    if (!cloud) return;
+    if (schedule.onReturn(Date.now())) void syncNow();
+  }, [cloud, schedule, syncNow]);
 
   // Invoice and stock postings are derived, never stored — so a document or a
   // stock move and its ledger entries can't drift apart, and revenue can only
@@ -250,6 +301,8 @@ export function LedgerProvider({
       connectCloud,
       disconnectCloud,
       syncNow,
+      pendingSync,
+      syncOnReturn,
     }),
     [
       loading,
@@ -279,6 +332,8 @@ export function LedgerProvider({
       connectCloud,
       disconnectCloud,
       syncNow,
+      pendingSync,
+      syncOnReturn,
     ]
   );
 

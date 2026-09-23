@@ -63,9 +63,24 @@ npm run package    # Windows installer, into release/
 ## Syncing with the phone
 
 Settings → Cloud sync, pointed at the same server as the phone: your own machine
-behind a Cloudflare Tunnel (see `../wlm-accounting-server`). Each record carries
-the time it changed and the newest version of each wins, so both can be used
-without one overwriting the other's work wholesale.
+behind a Cloudflare Tunnel (see `../wlm-accounting-server`). Nothing is sent
+anywhere until you sign in. Until then the books are on this PC and nowhere
+else.
 
-Nothing is sent anywhere until you sign in. Until then the books are on this PC
-and nowhere else.
+Once signed in it looks after itself. The sidebar says where it has got to —
+*Up to date*, *Saving to the server…*, or *Can't reach the server* — and the
+button beside it is only for hurrying things along. It syncs:
+
+- when the app opens
+- a few seconds after anything changes, so a burst of capturing goes in one go
+- once a minute, so the phone's work arrives without being asked for
+- when you come back to the window after leaving it a while
+
+A server that can't be reached is retried further and further apart rather than
+hammered, and anything captured meanwhile is kept and sent when it comes back.
+
+Each record carries the moment it changed and the newest version wins, so both
+machines can be used at once without one overwriting the other's work wholesale.
+Those stamps only ever go forwards, even if a device's clock is corrected
+backwards — otherwise work written in the seconds after a correction would be
+skipped by the very cursor meant to find it.

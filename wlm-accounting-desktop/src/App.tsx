@@ -61,7 +61,8 @@ const NAV: { group: string; items: { id: View; label: string; icon: React.ReactN
 ];
 
 export default function App() {
-  const { loading, docs, txns, cloud, syncing, syncNow } = useLedger();
+  const { loading, docs, txns, cloud, syncing, syncNow, pendingSync, lastSync, syncOnReturn } =
+    useLedger();
   const toast = useToast();
   const [view, setView] = useState<View>("dashboard");
   const [version, setVersion] = useState("");
@@ -69,6 +70,13 @@ export default function App() {
   useEffect(() => {
     window.wlm.appVersion().then(setVersion);
   }, []);
+
+  // Coming back to the window after a while: whatever was done on the phone in
+  // the meantime should be on screen before anything is typed on top of it.
+  useEffect(() => {
+    window.addEventListener("focus", syncOnReturn);
+    return () => window.removeEventListener("focus", syncOnReturn);
+  }, [syncOnReturn]);
 
   // Alt+1..9 walks the sidebar, the way a till or a ledger program would.
   useEffect(() => {
@@ -96,6 +104,19 @@ export default function App() {
   }, [docs, txns]);
 
   if (loading) return <div className="boot">Opening the books…</div>;
+
+  // The books sync on their own; this line says where that has got to, so the
+  // button is a way to hurry it rather than the only way to make it happen.
+  const failing = Boolean(cloud && lastSync && !lastSync.ok);
+  const syncLabel = !cloud
+    ? "Local only"
+    : syncing
+      ? "Syncing…"
+      : failing
+        ? "Can't reach the server"
+        : pendingSync
+          ? "Saving to the server…"
+          : "Up to date";
 
   const sync = async () => {
     const outcome = await syncNow();
@@ -155,10 +176,16 @@ export default function App() {
             className="nav-item"
             onClick={sync}
             disabled={!cloud || syncing}
-            title={cloud ? `Signed in as ${cloud.user.email}` : "Not connected to a server"}
+            title={
+              cloud
+                ? `${cloud.user.email} · ${cloud.serverUrl}${
+                    lastSync && !lastSync.ok ? ` · ${lastSync.error}` : ""
+                  }`
+                : "Not connected to a server"
+            }
           >
             {cloud ? <Cloud size={15} /> : <CloudOff size={15} />}
-            <span>{syncing ? "Syncing…" : cloud ? "Sync now" : "Local only"}</span>
+            <span className={failing ? "warn" : undefined}>{syncLabel}</span>
             {syncing && <RefreshCw size={13} className="count" />}
           </button>
           <div style={{ paddingTop: 8 }}>Version {version || "—"}</div>

@@ -29,7 +29,21 @@ export interface CloudSession {
   serverUrl: string;
   token: string;
   user: { id: string; email: string; name: string; role: string };
+  /**
+   * The pull cursor, on the SERVER's clock. Sent as `since`; the server answers
+   * with everything it received after that moment.
+   */
   lastSyncAt: number;
+  /**
+   * The push cursor, on THIS DEVICE's clock. Records carry `updatedAt` stamped
+   * here, so deciding what still needs sending has to be judged here too.
+   *
+   * Using the server's cursor for this — which is what the first version did —
+   * breaks the moment the two clocks disagree. A phone running two minutes slow
+   * stamps every edit "in the past" relative to the server's cursor, so nothing
+   * it does is ever pushed again, silently and permanently.
+   */
+  lastPushedAt?: number;
   lastSyncedIso?: string;
 }
 
@@ -52,13 +66,48 @@ const FIELD: Record<CollectionName, keyof Ledger> = {
   reconciliations: "reconciliations",
 };
 
+/**
+ * The highest moment this device has either stamped or seen.
+ *
+ * Stamps have to go forwards. Wall clocks do not: a phone correcting itself
+ * against network time steps backwards by a few seconds, and everything written
+ * in the seconds that follow would carry a stamp older than work already sent.
+ * Such a record is invisible to a cursor based on time — it is never pushed
+ * again — and it would lose a last-write-wins comparison it should have won.
+ *
+ * So a stamp is the later of the clock and one past the highest moment seen.
+ * Under a sane clock that is simply the clock; under a jumping one it keeps
+ * going forwards. Anything arriving from another device raises the mark too, so
+ * this device's next edit always outranks what it just received.
+ */
+let highWaterMark = 0;
+
+export function observeTime(moment: number | undefined): void {
+  if (typeof moment === "number" && moment > highWaterMark) highWaterMark = moment;
+}
+
+/** Seeds the mark from stored books at startup, so a restart can't go back. */
+export function observeLedger(ledger: Ledger): void {
+  for (const name of COLLECTIONS) {
+    for (const record of (ledger[FIELD[name]] ?? []) as Synced[]) observeTime(record.updatedAt);
+  }
+  observeTime(ledger.settings?.updatedAt);
+  observeTime(ledger.openingBankUpdatedAt);
+}
+
+function nextStamp(now: number): number {
+  highWaterMark = Math.max(now, highWaterMark + 1);
+  return highWaterMark;
+}
+
 export function stamp<T extends object>(record: T, now = Date.now()): T & Synced {
-  return { ...record, updatedAt: now };
+  return { ...record, updatedAt: nextStamp(now) };
 }
 
 /** A deletion that can travel: the record stays, marked. */
 export function tombstone<T extends { id: string }>(record: T, now = Date.now()): T & Synced {
-  return { ...record, updatedAt: now, deletedAt: now };
+  const at = nextStamp(now);
+  return { ...record, updatedAt: at, deletedAt: at };
 }
 
 export function isDeleted(record: Synced): boolean {
@@ -88,6 +137,7 @@ function mergeRecords<T extends { id: string } & Synced>(local: T[], incoming: T
 } {
   const byId = new Map(local.map((r) => [r.id, backfillUpdatedAt(r)]));
   let applied = 0;
+  for (const record of incoming) observeTime(record.updatedAt);
 
   for (const record of incoming) {
     if (!record?.id || typeof record.updatedAt !== "number") continue;
@@ -225,15 +275,26 @@ export async function syncOnce(
   ledger: Ledger
 ): Promise<{ outcome: SyncOutcome; ledger: Ledger; session: CloudSession }> {
   const since = session.lastSyncAt ?? 0;
+  const pushedSince = session.lastPushedAt ?? 0;
+  // The new cursor is the highest stamp this exchange carries, never a reading
+  // of the clock: stamps are monotonic and the clock is not, so a wall-clock
+  // cursor can sit above a stamp that was never sent and hide it for good.
+  // Anything stamped while the request is in flight outranks this and is
+  // therefore still due next time.
+  let pushedAt = pushedSince;
+  const note = (moment: number | undefined) => {
+    if (typeof moment === "number" && moment > pushedAt) pushedAt = moment;
+  };
 
   const changes: Record<string, unknown> = {};
   let pushed = 0;
   for (const name of COLLECTIONS) {
     const records = (ledger[FIELD[name]] ?? []) as ({ id: string } & Synced)[];
-    const batch = changedSince(records, since);
+    const batch = changedSince(records, pushedSince);
     if (batch.length) {
       changes[name] = batch;
       pushed += batch.length;
+      for (const record of batch) note(record.updatedAt);
     }
   }
 
@@ -242,13 +303,15 @@ export async function syncOnce(
   // means nothing on another.
   const { logoUri: _deadPath, ...syncableSettings } = ledger.settings;
   const settingsUpdatedAt = ledger.settings.updatedAt ?? 0;
-  if (settingsUpdatedAt > since) {
+  if (settingsUpdatedAt > pushedSince) {
     changes.settings = { value: syncableSettings, updatedAt: settingsUpdatedAt };
+    note(settingsUpdatedAt);
     pushed++;
   }
   const openingUpdatedAt = ledger.openingBankUpdatedAt ?? 0;
-  if (openingUpdatedAt > since) {
+  if (openingUpdatedAt > pushedSince) {
     changes.openingBank = { value: ledger.openingBank, updatedAt: openingUpdatedAt };
+    note(openingUpdatedAt);
     pushed++;
   }
 
@@ -313,9 +376,11 @@ export async function syncOnce(
     ledger: normaliseLedger(next),
     session: {
       ...session,
-      // The server's clock, never ours — the cursor has to come from the side
-      // that stamps receipt, or a skewed device silently misses records.
+      // The server's clock, never ours — the pull cursor has to come from the
+      // side that stamps receipt, or a skewed device silently misses records.
       lastSyncAt: response.serverTime,
+      // And ours, never the server's, for deciding what is left to send.
+      lastPushedAt: pushedAt,
       lastSyncedIso: new Date().toISOString(),
     },
   };

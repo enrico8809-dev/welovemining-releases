@@ -19,6 +19,7 @@ import {
   forWire,
   mergeInto,
   mergeSingleton,
+  singletonChangedSince,
   purgeTombstones,
 } from "./merge";
 
@@ -286,14 +287,14 @@ export function createApp(store: Store) {
           | { value: unknown; updatedAt: number }
           | undefined;
         if (settings && typeof settings.updatedAt === "number") {
-          db.settings = mergeSingleton(db.settings, settings);
+          db.settings = mergeSingleton(db.settings, settings, now);
         }
 
         const openingBank = incoming.openingBank as
           | { value: number; updatedAt: number }
           | undefined;
         if (openingBank && typeof openingBank.updatedAt === "number") {
-          db.openingBank = mergeSingleton(db.openingBank, openingBank);
+          db.openingBank = mergeSingleton(db.openingBank, openingBank, now);
         }
       }
     });
@@ -306,8 +307,8 @@ export function createApp(store: Store) {
     const db = store.read();
     // Singletons have no per-record cursor, so they ride along whenever the
     // caller is behind. Cheap, and avoids a second round trip.
-    if (db.settings && db.settings.updatedAt > since) changes.settings = db.settings;
-    if (db.openingBank && db.openingBank.updatedAt > since) {
+    if (singletonChangedSince(db.settings, since)) changes.settings = db.settings;
+    if (singletonChangedSince(db.openingBank, since)) {
       changes.openingBank = db.openingBank;
     }
 

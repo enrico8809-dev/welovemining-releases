@@ -110,14 +110,40 @@ export function purgeTombstones(
 /** A value that isn't a collection — settings, the opening balance. */
 export interface SingletonRecord<T> {
   value: T;
+  /** The writing device's clock. Decides which version wins. */
   updatedAt: number;
+  /** This server's clock, set on receipt. Decides who still needs it. */
+  _srv?: number;
 }
 
 export function mergeSingleton<T>(
   existing: SingletonRecord<T> | undefined,
-  incoming: SingletonRecord<T> | undefined
+  incoming: SingletonRecord<T> | undefined,
+  now: number
 ): SingletonRecord<T> | undefined {
   if (!incoming) return existing;
-  if (!existing) return incoming;
-  return incoming.updatedAt > existing.updatedAt ? incoming : existing;
+  const stamped = { ...incoming, _srv: now };
+  if (!existing) return stamped;
+  return incoming.updatedAt > existing.updatedAt ? stamped : existing;
+}
+
+/**
+ * Whether a singleton is newer than a caller's cursor.
+ *
+ * Compared against the server's receipt time, not the writer's `updatedAt`.
+ * Those are different clocks: a device running slow writes settings stamped
+ * before another device's cursor, and comparing the two directly means that
+ * change is never delivered — the logo or the exchange rate simply never
+ * arrives, with nothing to show for it. Records already work this way; this is
+ * the same rule for the two values that aren't in a collection.
+ *
+ * A record stored before `_srv` existed falls back to `updatedAt`, which is the
+ * behaviour it had when it was written.
+ */
+export function singletonChangedSince<T>(
+  record: SingletonRecord<T> | undefined,
+  since: number
+): boolean {
+  if (!record) return false;
+  return (record._srv ?? record.updatedAt) > since;
 }

@@ -36,7 +36,8 @@ type Mode = "signin" | "claim";
 export default function CloudScreen() {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const toast = useToast();
-  const { cloud, syncing, lastSync, connectCloud, disconnectCloud, syncNow } = useLedger();
+  const { cloud, syncing, lastSync, pendingSync, connectCloud, disconnectCloud, syncNow } =
+    useLedger();
 
   const [serverUrl, setServerUrl] = useState("https://accounting.welovemining.co.za");
   const [email, setEmail] = useState("");
@@ -217,6 +218,13 @@ export default function CloudScreen() {
                     : "Not synced yet"}
                 </Text>
                 {lastSync?.error && <Text style={styles.syncError}>{lastSync.error}</Text>}
+                <Text style={styles.note}>
+                  {syncing
+                    ? "Syncing now…"
+                    : pendingSync
+                      ? "Sending your latest changes…"
+                      : "Syncing happens on its own — when you open the app, shortly after anything changes, and every minute while it's in front of you. The button is only for hurrying it along."}
+                </Text>
               </View>
 
               <Button
