@@ -4,12 +4,30 @@ export function fmt(n: number): string {
   return `R ${sign}${abs(n)}`;
 }
 
-/** Bare amount with no currency symbol — for table columns. */
+/**
+ * Bare amount with no currency symbol — for table columns.
+ *
+ * Grouped by hand rather than through toLocaleString("en-ZA"). The locale's own
+ * convention is "1 200,50" — a narrow no-break space for thousands and a decimal
+ * comma — which is not the format this app was specified in, and worse, it does
+ * not survive a round trip: parseAmount strips the space and the comma, so
+ * "1 200,50" reads back as 120050. Every amount field normalises on blur, so an
+ * entered price was multiplied by a hundred each time focus left it. Formatting
+ * here is fixed and does not depend on what ICU data a phone happens to ship.
+ */
 export function abs(n: number): string {
-  return Math.abs(n).toLocaleString("en-ZA", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+  const [whole, cents] = Math.abs(n).toFixed(2).split(".");
+  return `${group(whole)}.${cents}`;
+}
+
+/** 1234567 -> "1,234,567" */
+function group(digits: string): string {
+  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+/** Whole number with thousands separators, no decimals — e.g. USD price tags. */
+export function fmtWhole(n: number): string {
+  return group(String(Math.round(Math.abs(n))));
 }
 
 /** Signed amount with an explicit +/− for ledger rows. */
@@ -70,9 +88,17 @@ export function todayISO(): string {
 /**
  * Parses what a user typed into an amount field. Tolerates thousands
  * separators and a stray currency symbol; returns NaN for anything else.
+ *
+ * A comma with one or two digits behind it and nothing else is a decimal comma —
+ * the South African convention, what a phone keypad set to en-ZA offers, and how
+ * this app itself used to format amounts. Reading it as a thousands separator
+ * turns R 1,50 into R 150.
  */
 export function parseAmount(input: string): number {
-  const cleaned = input.replace(/[R\s,]/g, "");
+  const stripped = input.replace(/[R\s  ]/g, "");
+  const cleaned = /^-?\d+,\d{1,2}$/.test(stripped)
+    ? stripped.replace(",", ".")
+    : stripped.replace(/,/g, "");
   if (!cleaned || !/^-?\d*\.?\d*$/.test(cleaned)) return NaN;
   return Number(cleaned);
 }

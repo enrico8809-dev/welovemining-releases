@@ -9,7 +9,14 @@ export type RootStackParamList = {
   DocDetail: { docId: string };
   Settings: undefined;
   Cloud: undefined;
-  Catalogue: { mode?: "browse" | "stock-in" | "line-item"; docId?: string } | undefined;
+  Catalogue:
+    | {
+        mode?: "browse" | "stock-in" | "line-item";
+        docId?: string;
+        /** Carried through the picker so a quote comes back as a quote. */
+        docKind?: "invoice" | "quote";
+      }
+    | undefined;
   ProductDetail: { productId: string; mode?: "stock-in" | "line-item"; docId?: string };
   BankImport: undefined;
   Reconciliation: undefined;

@@ -21,6 +21,8 @@ interface FieldProps {
   mono?: boolean;
   autoCapitalize?: "none" | "sentences" | "words" | "characters";
   style?: StyleProp<ViewStyle>;
+  onFocus?: () => void;
+  onBlur?: () => void;
 }
 
 export default function Field({
@@ -34,6 +36,8 @@ export default function Field({
   mono,
   autoCapitalize = "sentences",
   style,
+  onFocus,
+  onBlur,
 }: FieldProps) {
   const [focused, setFocused] = useState(false);
 
@@ -43,8 +47,14 @@ export default function Field({
       <TextInput
         value={value}
         onChangeText={onChangeText}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
+        onFocus={() => {
+          setFocused(true);
+          onFocus?.();
+        }}
+        onBlur={() => {
+          setFocused(false);
+          onBlur?.();
+        }}
         placeholder={placeholder}
         placeholderTextColor={C.mute}
         keyboardType={keyboardType}
