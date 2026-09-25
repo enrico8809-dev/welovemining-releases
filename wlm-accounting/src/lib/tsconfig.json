@@ -1,0 +1,27 @@
+{
+  // The accounting engine is plain TypeScript, and this file is what says so.
+  //
+  // Everything in this folder is shared with the Windows app, which imports
+  // these sources directly. A build tool reads the nearest tsconfig to each
+  // file it transforms, and without this one that is the phone app's — which
+  // extends `expo/tsconfig.base` and so needs Expo installed. The Windows build
+  // has no reason to install Expo, and failed on exactly that.
+  //
+  // So the engine describes itself: no Expo, no React Native, nothing that only
+  // one of the two apps has. Neither app compiles through this file — each uses
+  // its own — but any tool that walks up from an engine source finds terms it
+  // can satisfy.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "jsx": "react-jsx",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "noEmit": true
+  },
+  "include": ["."]
+}
