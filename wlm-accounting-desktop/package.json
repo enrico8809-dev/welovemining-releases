@@ -1,0 +1,68 @@
+{
+  "name": "wlm-accounting-desktop",
+  "productName": "WLM Accounting",
+  "version": "1.0.0",
+  "description": "WLM Accounting for Windows \u2014 the same books as the phone, laid out for a desk",
+  "private": true,
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build:main": "tsc -p tsconfig.electron.json",
+    "build:renderer": "vite build",
+    "build": "npm run build:main && npm run build:renderer",
+    "package": "npm run build && electron-builder --win nsis --publish never",
+    "test": "jest",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit"
+  },
+  "dependencies": {
+    "lucide-react": "1.47.0",
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
+  },
+  "devDependencies": {
+    "@types/jest": "30.0.0",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "electron": "38.8.6",
+    "electron-builder": "26.15.3",
+    "jest": "30.5.1",
+    "ts-jest": "29.4.12",
+    "typescript": "6.0.3",
+    "vite": "8.3.0"
+  },
+  "build": {
+    "appId": "za.co.welovemining.accounting",
+    "productName": "WLM Accounting",
+    "copyright": "WeLoveMining Pty Ltd",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**",
+      "dist-electron/**"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "WLM-Accounting-Setup.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "WLM Accounting"
+    },
+    "publish": null
+  }
+}

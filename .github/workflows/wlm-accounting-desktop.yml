@@ -1,0 +1,103 @@
+name: WLM Accounting — Windows
+
+# Builds the Windows installer and publishes it to the `accounting-desktop-latest`
+# release. Like the Android build, no account and no secrets: the installer is
+# unsigned, so Windows SmartScreen warns on first run — see the app's README.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "wlm-accounting-desktop/**"
+      - "wlm-accounting/src/lib/**"
+      - ".github/workflows/wlm-accounting-desktop.yml"
+  # Checked on pull requests too, but only as far as typecheck and tests — a
+  # branch has no business publishing to the release everyone downloads from.
+  pull_request:
+    paths:
+      - "wlm-accounting-desktop/**"
+      - "wlm-accounting/src/lib/**"
+      - ".github/workflows/wlm-accounting-desktop.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Typecheck and test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: wlm-accounting-desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # The engine is imported from the phone app's sources, so its own tests
+      # are the ones that cover the accounting. They run in that package.
+      - name: Install the engine's dependencies
+        working-directory: wlm-accounting
+        run: npm install --no-audit --no-fund
+
+      - name: Test the engine
+        working-directory: wlm-accounting
+        run: npm test
+
+      - name: Install
+        run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test the ledger file
+        run: npm test
+
+  build:
+    name: Build Setup.exe
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: wlm-accounting-desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        run: npm ci
+
+      - name: Read the app version
+        id: version
+        shell: bash
+        run: echo "v=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Build and package
+        run: npm run package
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: WLM Accounting for Windows v${{ steps.version.outputs.v }}
+          tag_name: accounting-desktop-latest
+          target_commitish: ${{ github.sha }}
+          body: |
+            **WLM Accounting for Windows v${{ steps.version.outputs.v }}** — the same
+            books as the phone, laid out for a desk.
+
+            Download `WLM-Accounting-Setup.exe` and run it. It installs for the
+            current user, so no administrator password is needed. The installer is
+            not code-signed, so Windows will show "Windows protected your PC" the
+            first time — choose **More info** then **Run anyway**.
+
+            The books are kept on this PC and sync with the phone through your own
+            server when you sign in under Settings → Cloud sync.
+          files: wlm-accounting-desktop/release/WLM-Accounting-Setup.exe
+          fail_on_unmatched_files: true

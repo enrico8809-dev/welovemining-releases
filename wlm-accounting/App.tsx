@@ -6,7 +6,9 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useFonts, Rajdhani_500Medium, Rajdhani_700Bold } from "@expo-google-fonts/rajdhani";
 import { ShareTechMono_400Regular } from "@expo-google-fonts/share-tech-mono";
 import { LedgerProvider } from "./src/lib/LedgerContext";
+import { devicePersistence } from "./src/lib/persistence";
 import { ToastProvider } from "./src/components/Toast";
+import ForegroundSync from "./src/components/ForegroundSync";
 import RootNavigator from "./src/navigation";
 import { useSystemBars } from "./src/lib/systemBars";
 import { C } from "./src/lib/theme";
@@ -28,7 +30,8 @@ export default function App() {
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider>
         <ToastProvider>
-          <LedgerProvider>
+          <LedgerProvider persistence={devicePersistence}>
+            <ForegroundSync />
             <RootNavigator />
           </LedgerProvider>
         </ToastProvider>

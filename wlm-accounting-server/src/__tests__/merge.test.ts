@@ -7,6 +7,7 @@ import {
   mergeInto,
   mergeSingleton,
   purgeTombstones,
+  singletonChangedSince,
 } from "../merge";
 
 function rec(id: string, updatedAt: number, extra: Partial<SyncRecord> = {}): SyncRecord {
@@ -174,24 +175,67 @@ describe("tombstone purging", () => {
 });
 
 describe("singletons", () => {
+  const SERVER_NOW = 9_000;
+
   it("takes the newer of the two", () => {
     expect(
-      mergeSingleton({ value: "old", updatedAt: 1 }, { value: "new", updatedAt: 2 })
-    ).toEqual({ value: "new", updatedAt: 2 });
+      mergeSingleton({ value: "old", updatedAt: 1 }, { value: "new", updatedAt: 2 }, SERVER_NOW)
+    ).toEqual({ value: "new", updatedAt: 2, _srv: SERVER_NOW });
   });
 
   it("keeps the existing value on a tie", () => {
     expect(
-      mergeSingleton({ value: "held", updatedAt: 5 }, { value: "other", updatedAt: 5 })!.value
+      mergeSingleton(
+        { value: "held", updatedAt: 5 },
+        { value: "other", updatedAt: 5 },
+        SERVER_NOW
+      )!.value
     ).toBe("held");
   });
 
   it("accepts a first value", () => {
-    expect(mergeSingleton(undefined, { value: "first", updatedAt: 1 })!.value).toBe("first");
+    expect(
+      mergeSingleton(undefined, { value: "first", updatedAt: 1 }, SERVER_NOW)!.value
+    ).toBe("first");
   });
 
   it("leaves the existing value alone when nothing is pushed", () => {
-    expect(mergeSingleton({ value: "held", updatedAt: 1 }, undefined)!.value).toBe("held");
+    expect(mergeSingleton({ value: "held", updatedAt: 1 }, undefined, SERVER_NOW)!.value).toBe(
+      "held"
+    );
+  });
+
+  it("stamps what it accepts with its own clock", () => {
+    const stored = mergeSingleton(undefined, { value: "x", updatedAt: 1 }, SERVER_NOW);
+    expect(stored!._srv).toBe(SERVER_NOW);
+  });
+});
+
+describe("delivering singletons to a device that is behind", () => {
+  it("sends a value the device hasn't seen", () => {
+    expect(singletonChangedSince({ value: "x", updatedAt: 1, _srv: 500 }, 400)).toBe(true);
+  });
+
+  it("doesn't resend one it already has", () => {
+    expect(singletonChangedSince({ value: "x", updatedAt: 1, _srv: 500 }, 500)).toBe(false);
+  });
+
+  it("delivers a change written by a device whose clock runs slow", () => {
+    // The whole point of the second clock. A phone two minutes behind stamps
+    // settings with an `updatedAt` older than every other device's cursor;
+    // judged on that, the new logo or exchange rate would never be handed out,
+    // and nothing would show that it hadn't been.
+    const slowDevice = { value: "new logo", updatedAt: 1_000, _srv: 8_000 };
+    expect(singletonChangedSince(slowDevice, 5_000)).toBe(true);
+  });
+
+  it("falls back to updatedAt for a value stored before the server stamped them", () => {
+    expect(singletonChangedSince({ value: "legacy", updatedAt: 700 }, 400)).toBe(true);
+    expect(singletonChangedSince({ value: "legacy", updatedAt: 300 }, 400)).toBe(false);
+  });
+
+  it("has nothing to send when there is no value", () => {
+    expect(singletonChangedSince(undefined, 0)).toBe(false);
   });
 });
 

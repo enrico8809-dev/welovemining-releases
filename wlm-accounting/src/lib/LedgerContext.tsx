@@ -4,16 +4,37 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { Account, SEED_ACCOUNTS, Txn, computeBalances } from "./accounting";
 import { BusinessDoc, postingsForDocs } from "./invoices";
 import { StockMovement, postingsForMovements } from "./inventory";
 import { Reconciliation } from "./reconcile";
-import { CloudSession, SyncOutcome, live, stamp, syncOnce, tombstone } from "./sync";
-import { clearSession, loadSession, saveSession } from "./cloudSession";
+import { CloudSession, SyncOutcome, live, observeLedger, syncOnce } from "./sync";
+import * as ops from "./ledgerOps";
+import { SyncReason, SyncSchedule } from "./syncSchedule";
+import { LedgerWriter } from "./ledgerOps";
 import { findProduct, productLabel } from "./catalogue";
-import { EMPTY_LEDGER, Ledger, Settings, loadLedger, saveLedger } from "./storage";
+import { EMPTY_LEDGER, Ledger, Settings } from "./ledgerModel";
+
+/**
+ * Where the books and the cloud session are kept.
+ *
+ * Passed in rather than imported, because that is the only part of this file
+ * that differs between the phone and the Windows app: one writes to
+ * AsyncStorage, the other to a JSON file next to the user's profile. Everything
+ * below — what an edit does, what a deletion means, how a sync is applied — is
+ * the behaviour of the books themselves, and both apps run this exact copy of
+ * it rather than two that can drift.
+ */
+export interface LedgerPersistence {
+  loadLedger(): Promise<Ledger>;
+  saveLedger(ledger: Ledger): Promise<void>;
+  loadSession(): Promise<CloudSession | null>;
+  saveSession(session: CloudSession): Promise<void>;
+  clearSession(): Promise<void>;
+}
 
 interface LedgerContextValue {
   loading: boolean;
@@ -29,6 +50,8 @@ interface LedgerContextValue {
   settings: Settings;
   balances: Record<string, number>;
   addTxn: (txn: Txn) => Promise<void>;
+  /** A whole statement import, applied and saved once. */
+  addTxns: (txns: Txn[]) => Promise<void>;
   updateTxn: (txn: Txn) => Promise<void>;
   removeTxn: (id: string) => Promise<void>;
   saveDoc: (doc: BusinessDoc) => Promise<void>;
@@ -47,138 +70,120 @@ interface LedgerContextValue {
   connectCloud: (session: CloudSession) => Promise<void>;
   disconnectCloud: () => Promise<void>;
   syncNow: () => Promise<SyncOutcome>;
+  /** True while there are local changes the server hasn't been told about. */
+  pendingSync: boolean;
+  /** Called by each app when its window or screen comes back to the front. */
+  syncOnReturn: () => void;
 }
 
 const LedgerContext = createContext<LedgerContextValue | undefined>(undefined);
 
-export function LedgerProvider({ children }: { children: React.ReactNode }) {
+export function LedgerProvider({
+  children,
+  persistence,
+}: {
+  children: React.ReactNode;
+  persistence: LedgerPersistence;
+}) {
   const [loading, setLoading] = useState(true);
   const [ledger, setLedger] = useState<Ledger>(EMPTY_LEDGER);
   const [cloud, setCloud] = useState<CloudSession | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<SyncOutcome | null>(null);
 
+  // One writer owns the books. Every change is applied to the value it last
+  // produced, never to a value captured in a closure — see ledgerOps for the
+  // import bug that made this necessary.
+  const writerRef = useRef<LedgerWriter | null>(null);
+  if (!writerRef.current) {
+    writerRef.current = new LedgerWriter(EMPTY_LEDGER, setLedger, (next) =>
+      persistence.saveLedger(next)
+    );
+  }
+  const writer = writerRef.current;
+
+  // Every local change goes through here, so this is where the schedule is told
+  // there is something to send.
+  const scheduleRef = useRef<SyncSchedule | null>(null);
+  if (!scheduleRef.current) scheduleRef.current = new SyncSchedule();
+  const schedule = scheduleRef.current;
+
+  const [pendingSync, setPendingSync] = useState(false);
+
+  const apply = useCallback(
+    async (change: ops.LedgerChange, local = true) => {
+      await writer.apply(change);
+      if (local) {
+        schedule.noteChange(Date.now());
+        setPendingSync(true);
+      }
+    },
+    [writer, schedule]
+  );
+
   useEffect(() => {
     let cancelled = false;
-    Promise.all([loadLedger(), loadSession()]).then(([loaded, session]) => {
-      if (cancelled) return;
-      setLedger(loaded);
-      setCloud(session);
-      setLoading(false);
-    });
+    Promise.all([persistence.loadLedger(), persistence.loadSession()]).then(
+      ([loaded, session]) => {
+        if (cancelled) return;
+        // Stamps must keep going forwards across a restart, even if the clock
+        // has stepped back since the app was last open.
+        observeLedger(loaded);
+        writer.adopt(loaded);
+        setCloud(session);
+        setLoading(false);
+      }
+    );
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [persistence, writer]);
 
-  const persist = useCallback(async (next: Ledger) => {
-    setLedger(next);
-    await saveLedger(next);
-  }, []);
-
-  const addTxn = useCallback(
-    (txn: Txn) => persist({ ...ledger, txns: [stamp(txn), ...ledger.txns] }),
-    [ledger, persist]
-  );
-
-  const updateTxn = useCallback(
-    (txn: Txn) =>
-      persist({
-        ...ledger,
-        txns: ledger.txns.map((t) => (t.id === txn.id ? stamp(txn) : t)),
-      }),
-    [ledger, persist]
-  );
-
-  // Deleting marks rather than drops, so the deletion can reach other devices.
-  // Tombstones are filtered out of everything the UI reads.
-  const removeTxn = useCallback(
-    (id: string) =>
-      persist({
-        ...ledger,
-        txns: ledger.txns.map((t) => (t.id === id ? tombstone(t) : t)),
-      }),
-    [ledger, persist]
-  );
-
-  const saveDoc = useCallback(
-    (doc: BusinessDoc) => {
-      const exists = ledger.docs.some((d) => d.id === doc.id);
-      const docs = exists
-        ? ledger.docs.map((d) => (d.id === doc.id ? stamp(doc) : d))
-        : [stamp(doc), ...ledger.docs];
-      return persist({ ...ledger, docs });
-    },
-    [ledger, persist]
-  );
-
-  const removeDoc = useCallback(
-    (id: string) =>
-      persist({
-        ...ledger,
-        docs: ledger.docs.map((d) => (d.id === id ? tombstone(d) : d)),
-      }),
-    [ledger, persist]
-  );
-
+  const addTxn = useCallback((txn: Txn) => apply(ops.addTxn(txn)), [apply]);
+  const addTxns = useCallback((txns: Txn[]) => apply(ops.addTxns(txns)), [apply]);
+  const updateTxn = useCallback((txn: Txn) => apply(ops.updateTxn(txn)), [apply]);
+  const removeTxn = useCallback((id: string) => apply(ops.removeTxn(id)), [apply]);
+  const saveDoc = useCallback((doc: BusinessDoc) => apply(ops.saveDoc(doc)), [apply]);
+  const removeDoc = useCallback((id: string) => apply(ops.removeDoc(id)), [apply]);
   const addMovement = useCallback(
-    (m: StockMovement) => persist({ ...ledger, movements: [stamp(m), ...ledger.movements] }),
-    [ledger, persist]
+    (m: StockMovement) => apply(ops.addMovement(m)),
+    [apply]
   );
-
   const removeMovement = useCallback(
-    (id: string) =>
-      persist({
-        ...ledger,
-        movements: ledger.movements.map((m) => (m.id === id ? tombstone(m) : m)),
-      }),
-    [ledger, persist]
+    (id: string) => apply(ops.removeMovement(id)),
+    [apply]
   );
-
   const addReconciliation = useCallback(
-    (r: Reconciliation) =>
-      persist({ ...ledger, reconciliations: [stamp(r), ...ledger.reconciliations] }),
-    [ledger, persist]
+    (r: Reconciliation) => apply(ops.addReconciliation(r)),
+    [apply]
   );
-
   const removeReconciliation = useCallback(
-    (id: string) =>
-      persist({
-        ...ledger,
-        reconciliations: ledger.reconciliations.map((r) =>
-          r.id === id ? tombstone(r) : r
-        ),
-      }),
-    [ledger, persist]
+    (id: string) => apply(ops.removeReconciliation(id)),
+    [apply]
   );
-
   const setOpeningBank = useCallback(
-    (amount: number) =>
-      persist({ ...ledger, openingBank: amount, openingBankUpdatedAt: Date.now() }),
-    [ledger, persist]
+    (amount: number) => apply(ops.setOpeningBank(amount)),
+    [apply]
   );
-
   const updateSettings = useCallback(
-    (patch: Partial<Settings>) =>
-      persist({
-        ...ledger,
-        settings: { ...ledger.settings, ...patch, updatedAt: Date.now() },
-      }),
-    [ledger, persist]
+    (patch: Partial<Settings>) => apply(ops.updateSettings(patch)),
+    [apply]
   );
+  const replaceLedger = useCallback((next: Ledger) => apply(ops.replace(next)), [apply]);
 
-  const replaceLedger = useCallback((next: Ledger) => persist(next), [persist]);
-
-  const connectCloud = useCallback(async (session: CloudSession) => {
-    setCloud(session);
-    await saveSession(session);
-  }, []);
+  const connectCloud = useCallback(
+    async (session: CloudSession) => {
+      setCloud(session);
+      await persistence.saveSession(session);
+    },
+    [persistence]
+  );
 
   const disconnectCloud = useCallback(async () => {
     setCloud(null);
     setLastSync(null);
-    await clearSession();
-  }, []);
+    await persistence.clearSession();
+  }, [persistence]);
 
   const syncNow = useCallback(async (): Promise<SyncOutcome> => {
     if (!cloud) {
@@ -187,19 +192,54 @@ export function LedgerProvider({ children }: { children: React.ReactNode }) {
       return outcome;
     }
     setSyncing(true);
+    schedule.noteStarted(Date.now());
     try {
-      const result = await syncOnce(cloud, ledger);
+      // The merged ledger replaces what's here wholesale, so it goes through the
+      // writer too — anything captured while the request was in flight is lost
+      // either way, and this at least keeps the writer's idea of the books and
+      // React's in step.
+      const result = await syncOnce(cloud, writer.value);
       if (result.outcome.ok) {
-        await persist(result.ledger);
+        await apply(ops.replace(result.ledger), false);
         setCloud(result.session);
-        await saveSession(result.session);
+        await persistence.saveSession(result.session);
       }
       setLastSync(result.outcome);
+      schedule.noteFinished(Date.now(), result.outcome.ok);
+      setPendingSync(schedule.hasUnsentWork);
       return result.outcome;
     } finally {
       setSyncing(false);
     }
-  }, [cloud, ledger, persist]);
+  }, [cloud, apply, persistence, writer, schedule]);
+
+  /**
+   * The books keep themselves up to date.
+   *
+   * One timer, asking the schedule on each tick whether anything is due rather
+   * than holding a timer per reason. Ticking often and syncing rarely is the
+   * cheap way round: the tick costs nothing, and every decision about whether
+   * an exchange is worth making lives in one tested place.
+   */
+  useEffect(() => {
+    if (!cloud) return;
+
+    let opened = true;
+    const tick = () => {
+      const reason: SyncReason | null = schedule.due(Date.now(), opened);
+      opened = false;
+      if (reason) void syncNow();
+    };
+
+    tick();
+    const timer = setInterval(tick, 2_000);
+    return () => clearInterval(timer);
+  }, [cloud, schedule, syncNow]);
+
+  const syncOnReturn = useCallback(() => {
+    if (!cloud) return;
+    if (schedule.onReturn(Date.now())) void syncNow();
+  }, [cloud, schedule, syncNow]);
 
   // Invoice and stock postings are derived, never stored — so a document or a
   // stock move and its ledger entries can't drift apart, and revenue can only
@@ -242,6 +282,7 @@ export function LedgerProvider({ children }: { children: React.ReactNode }) {
       settings: ledger.settings,
       balances,
       addTxn,
+      addTxns,
       updateTxn,
       removeTxn,
       saveDoc,
@@ -260,6 +301,8 @@ export function LedgerProvider({ children }: { children: React.ReactNode }) {
       connectCloud,
       disconnectCloud,
       syncNow,
+      pendingSync,
+      syncOnReturn,
     }),
     [
       loading,
@@ -267,6 +310,7 @@ export function LedgerProvider({ children }: { children: React.ReactNode }) {
       allTxns,
       balances,
       addTxn,
+      addTxns,
       updateTxn,
       removeTxn,
       saveDoc,
@@ -288,6 +332,8 @@ export function LedgerProvider({ children }: { children: React.ReactNode }) {
       connectCloud,
       disconnectCloud,
       syncNow,
+      pendingSync,
+      syncOnReturn,
     ]
   );
 

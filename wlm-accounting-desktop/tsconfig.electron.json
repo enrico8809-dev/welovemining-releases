@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "node16",
+    "moduleResolution": "node16",
+    "strict": true,
+    "noUnusedLocals": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "outDir": "dist-electron",
+    "rootDir": "electron",
+    "sourceMap": false,
+    "types": ["node", "jest"]
+  },
+  "include": ["electron"],
+  // Tests are typechecked by ts-jest when they run; they must not be compiled
+  // into the packaged app.
+  "exclude": ["electron/__tests__"]
+}
