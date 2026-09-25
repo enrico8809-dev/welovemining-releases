@@ -1,0 +1,34 @@
+# WeLoveMining Trading Bot - settings (no secrets here; keys live in .env)
+
+data:
+  # Candles are downloaded from this date up to now (5+ years covers the 2022 bear market)
+  history_start: "2021-01-01"
+  timeframes: ["1d", "1h"]
+  # Coins to download for backtesting (the live Coin Scanner comes in Phase 5)
+  symbols:
+    - BTC/USDT
+    - ETH/USDT
+    - BNB/USDT
+    - SOL/USDT
+    - XRP/USDT
+  cache_dir: data/cache
+
+backtest:
+  initial_capital: 1000        # starting USDT
+  fee_pct: 0.1                 # exchange fee per side, in %
+  slippage_pct: 0.05           # price slippage per side, in %
+  # Used when the exchange's own minimums are not cached (run the downloader first)
+  default_min_order_usdt: 5
+  default_amount_step: 0.00001
+  min_trades_warning: 30       # fewer trades than this = result not statistically meaningful
+
+  # Market periods for separate reports (dates are inclusive, based on BTC's history)
+  periods:
+    bear:     { start: "2022-01-01", end: "2022-12-31" }
+    bull:     { start: "2023-01-01", end: "2024-03-31" }
+    sideways: { start: "2024-04-01", end: "2024-10-31" }
+
+logging:
+  dir: logs
+  level: INFO
+  keep_days: 30
