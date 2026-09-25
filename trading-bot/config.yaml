@@ -1,32 +1,67 @@
 # WeLoveMining Trading Bot - settings (no secrets here; keys live in .env)
 
+# ---------------------------------------------------------------------------
+# Markets. Each market has its own data source, coins/symbols, costs and test periods.
+#   source: ccxt  -> crypto exchange from EXCHANGE in .env (binance, luno, ...)
+#   source: yahoo -> Yahoo Finance history for Forex, stocks, ETFs, gold (backtesting only;
+#                    live trading of these markets will go through Interactive Brokers)
+# Costs:  fee_pct = % of order value per side, min_fee = minimum fee per order
+#         (in the pair's quote currency), slippage_pct = price slippage per side.
+# min_order = smallest order value, amount_step = smallest amount increment.
+# Everything is spot/cash only: never shorting, never leverage (Forex is traded 1:1).
+# ---------------------------------------------------------------------------
+markets:
+  crypto:
+    source: ccxt
+    history_start: "2021-01-01"
+    timeframes: ["1d", "1h"]
+    symbols: [BTC/USDT, ETH/USDT, BNB/USDT, SOL/USDT, XRP/USDT]
+    fee_pct: 0.1
+    min_fee: 0
+    slippage_pct: 0.05
+    min_order: 5              # only used if the exchange's own minimums are not downloaded
+    amount_step: 0.00001
+    periods:                  # based on BTC's history
+      bear:     { start: "2022-01-01", end: "2022-12-31" }
+      bull:     { start: "2023-01-01", end: "2024-03-31" }
+      sideways: { start: "2024-04-01", end: "2024-10-31" }
+
+  forex:
+    source: yahoo
+    history_start: "2012-01-01"
+    timeframes: ["1d", "1h"]  # Yahoo only has the last ~2 years of hourly Forex data
+    symbols: [EURUSD=X, GBPUSD=X, AUDUSD=X, USDJPY=X, USDZAR=X]
+    fee_pct: 0.002            # Interactive Brokers: 0.2 basis points...
+    min_fee: 2                # ...with a 2 USD minimum per order
+    slippage_pct: 0.01
+    min_order: 100
+    amount_step: 1            # whole currency units
+    periods:                  # based on EUR/USD's history
+      sideways: { start: "2015-03-01", end: "2016-12-31" }
+      bear:     { start: "2021-06-01", end: "2022-09-30" }
+      bull:     { start: "2022-10-01", end: "2023-07-31" }
+
+  stocks:                     # US stocks and ETFs (incl. gold via GLD)
+    source: yahoo
+    history_start: "2012-01-01"
+    timeframes: ["1d"]
+    symbols: [SPY, QQQ, GLD, AAPL, MSFT, NVDA]
+    fee_pct: 0.05             # Interactive Brokers "tiered": ~0.0035 USD/share + exchange fees...
+    min_fee: 0.35             # ...with a 0.35 USD minimum per order
+    slippage_pct: 0.02
+    min_order: 1
+    amount_step: 0.0001       # fractional shares
+    periods:                  # based on the S&P 500 (SPY)
+      sideways: { start: "2015-01-01", end: "2016-06-30" }
+      bear:     { start: "2022-01-01", end: "2022-10-31" }
+      bull:     { start: "2023-01-01", end: "2024-12-31" }
+
 data:
-  # Candles are downloaded from this date up to now (5+ years covers the 2022 bear market)
-  history_start: "2021-01-01"
-  timeframes: ["1d", "1h"]
-  # Coins to download for backtesting (the live Coin Scanner comes in Phase 5)
-  symbols:
-    - BTC/USDT
-    - ETH/USDT
-    - BNB/USDT
-    - SOL/USDT
-    - XRP/USDT
   cache_dir: data/cache
 
 backtest:
-  initial_capital: 1000        # starting USDT
-  fee_pct: 0.1                 # exchange fee per side, in %
-  slippage_pct: 0.05           # price slippage per side, in %
-  # Used when the exchange's own minimums are not cached (run the downloader first)
-  default_min_order_usdt: 5
-  default_amount_step: 0.00001
-  min_trades_warning: 30       # fewer trades than this = result not statistically meaningful
-
-  # Market periods for separate reports (dates are inclusive, based on BTC's history)
-  periods:
-    bear:     { start: "2022-01-01", end: "2022-12-31" }
-    bull:     { start: "2023-01-01", end: "2024-03-31" }
-    sideways: { start: "2024-04-01", end: "2024-10-31" }
+  initial_capital: 1000       # starting money, in the pair's quote currency (USDT, USD, ZAR, ...)
+  min_trades_warning: 30      # fewer trades than this = result not statistically meaningful
 
 logging:
   dir: logs

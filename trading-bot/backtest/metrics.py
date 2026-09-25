@@ -1,7 +1,7 @@
 """Performance numbers for a backtest.
 
-Crypto trades 24/7, so a year has 365 daily candles or 8760 hourly candles.
-Sharpe and Sortino use a 0% risk-free rate.
+Sharpe and Sortino use a 0% risk-free rate and are annualised with the number
+of candles per year found in the data.
 """
 import math
 
@@ -12,9 +12,15 @@ from backtest.engine import BacktestResult, Trade
 
 
 def periods_per_year(index: pd.DatetimeIndex) -> float:
-    """How many candles fit in one year, from the typical gap between candles."""
-    step = pd.Series(index).diff().median()
-    return pd.Timedelta(days=365) / step
+    """How many candles there are per year in this data.
+
+    Counted from the data itself, so it is right for every market: crypto trades
+    24/7 (365 daily candles a year), stocks ~252 days, Forex ~260 days.
+    """
+    years = (index[-1] - index[0]) / pd.Timedelta(days=365)
+    if years <= 0:
+        return 365.0
+    return (len(index) - 1) / years
 
 
 def equity_stats(equity: pd.Series, initial: float) -> dict:

@@ -39,3 +39,11 @@ def test_warning_when_fewer_than_30_trades():
     eq = curve([1000, 1010])
     r = BacktestResult(eq, [], [], 0, eq, 1000)
     assert "not statistically meaningful" in summarize(r, 30)["warnings"][0]
+
+
+def test_stock_market_days_are_annualised_as_trading_days():
+    from backtest.metrics import periods_per_year
+    weekdays = pd.bdate_range("2023-01-02", "2024-12-31", tz="UTC")   # no weekends, like stocks/Forex
+    assert 255 < periods_per_year(weekdays) < 265
+    every_day = pd.date_range("2023-01-01", "2024-12-31", freq="1D", tz="UTC")
+    assert periods_per_year(every_day) == pytest.approx(365, rel=0.01)

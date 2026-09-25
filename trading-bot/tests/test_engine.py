@@ -113,3 +113,12 @@ def test_buy_and_hold_benchmark_pays_costs():
     c = make_candles([100] * 5, spread=0)
     r = run_backtest(c, Fixed([0] * 5), settings())
     assert r.buy_hold_equity.iloc[-1] == pytest.approx(1000 * 99.95 * 0.999 / (100.05 * 1.001), abs=0.01)
+
+
+def test_minimum_fee_per_order_is_charged():
+    # Stock broker style: 0.05% but at least 1 USD per order. 1000 USD order -> 0.50 < 1 -> pay 1.
+    c = make_candles([100] * 6, spread=0)
+    s = settings(fee_pct=0.05, min_fee=1, slippage_pct=0, rules=MarketRules(min_cost=1, amount_step=0.0001))
+    r = run_backtest(c, Fixed([1, 1, 0, 0, 0, 0]), s)
+    assert [o["fee"] for o in r.orders] == [pytest.approx(1), pytest.approx(1)]
+    assert r.equity.iloc[-1] == pytest.approx(998, abs=0.02)

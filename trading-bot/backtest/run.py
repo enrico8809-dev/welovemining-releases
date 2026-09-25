@@ -1,11 +1,13 @@
 """Run a backtest from the command line and print a report.
 
 Examples (run from the trading-bot folder):
-    python -m backtest.run
-    python -m backtest.run --symbols BTC/USDT ETH/USDT --strategy sma_cross --params fast=10 slow=40
-    python -m backtest.run --timeframe 1h --params fast=240 slow=960
+    python -m backtest.run                                    (crypto, sma_cross)
+    python -m backtest.run --strategy all                     (compare every strategy)
+    python -m backtest.run --market forex --strategy rsi_dip
+    python -m backtest.run --market stocks --symbols SPY GLD --strategy all
+    python -m backtest.run --symbols BTC/USDT --strategy sma_cross --params fast=20 slow=50
 
-Reports the full history plus each bull / bear / sideways period from config.yaml.
+Reports the full history plus each bull / bear / sideways period of the market (config.yaml).
 """
 import argparse
 import math
@@ -59,19 +61,46 @@ def fmt(value, pattern: str) -> str:
     return pattern.format(value)
 
 
-def backtest_symbol(cfg: dict, exchange_id: str, symbol: str, timeframe: str,
-                    strategy_name: str, params: dict) -> pd.DataFrame:
-    """Backtest one symbol over the full history and each configured period."""
-    bt = cfg["backtest"]
+def market_settings(cfg: dict, market_name: str, symbol: str, candles: pd.DataFrame):
+    """Costs and exchange rules for one symbol, from the market's section in config.yaml."""
+    market = cfg["markets"][market_name]
     cache_dir = ROOT / cfg["data"]["cache_dir"]
-    candles = load_candles(cache_dir, exchange_id, symbol, timeframe)
-    rules = load_market_rules(cache_dir, exchange_id, symbol,
-                              bt["default_min_order_usdt"], bt["default_amount_step"])
-    settings = BacktestSettings(initial_capital=bt["initial_capital"], fee_pct=bt["fee_pct"],
-                                slippage_pct=bt["slippage_pct"], rules=rules)
+    source_id = source_of(market)
+    rules = load_market_rules(cache_dir, source_id, symbol, market["min_order"], market["amount_step"])
+
+    # Money is counted in the pair's quote currency. For Forex pairs like USDZAR=X that is ZAR,
+    # so scale the capital, minimum order and minimum fee (all set in USD) by the USD price.
+    scale = 1.0
+    if market_name == "forex" and symbol.upper().startswith("USD"):
+        scale = float(candles["close"].iloc[0])
+        rules.min_cost *= scale
+    return BacktestSettings(
+        initial_capital=cfg["backtest"]["initial_capital"] * scale,
+        fee_pct=market["fee_pct"],
+        min_fee=market.get("min_fee", 0) * scale,
+        slippage_pct=market["slippage_pct"],
+        rules=rules,
+    )
+
+
+def source_of(market: dict) -> str:
+    """Folder name in data/cache: the crypto exchange id, or 'yahoo'."""
+    if market["source"] == "ccxt":
+        return (os.getenv("EXCHANGE") or "binance").lower()
+    return market["source"]
+
+
+def backtest_symbol(cfg: dict, market_name: str, symbol: str, timeframe: str,
+                    strategy_name: str, params: dict, show: bool = True) -> dict:
+    """Backtest one symbol over the full history and each of the market's periods.
+    Returns {period name: summary}."""
+    market = cfg["markets"][market_name]
+    min_trades = cfg["backtest"]["min_trades_warning"]
+    candles = load_candles(ROOT / cfg["data"]["cache_dir"], source_of(market), symbol, timeframe)
+    settings = market_settings(cfg, market_name, symbol, candles)
 
     periods = {"full": (None, None)}
-    periods.update({name: (p["start"], p["end"]) for name, p in bt.get("periods", {}).items()})
+    periods.update({name: (p["start"], p["end"]) for name, p in market.get("periods", {}).items()})
 
     columns, warnings = {}, []
     for name, (start, end) in periods.items():
@@ -81,43 +110,77 @@ def backtest_symbol(cfg: dict, exchange_id: str, symbol: str, timeframe: str,
         except ValueError as e:
             warnings.append(f"[{name}] skipped: {e}")
             continue
-        s = summarize(result, bt["min_trades_warning"])
+        s = summarize(result, min_trades)
         s["from"], s["to"] = result.equity.index[0], result.equity.index[-1]
         columns[name] = s
         warnings += [f"[{name}] {w}" for w in s["warnings"]]
 
-    table = pd.DataFrame({col: {label: fmt(s[key], f) for key, label, f in ROWS}
-                          for col, s in columns.items()})
-    print(f"\n=== {symbol} {timeframe} | {load_strategy(strategy_name, **params)} | "
-          f"fee {bt['fee_pct']}% + slippage {bt['slippage_pct']}% per side ===")
-    print(table.to_string())
-    for w in warnings:
-        print(f"  WARNING {w}")
-    return table
+    if show:
+        table = pd.DataFrame({col: {label: fmt(s[key], f) for key, label, f in ROWS}
+                              for col, s in columns.items()})
+        print(f"\n=== {symbol} {timeframe} | {load_strategy(strategy_name, **params)} | "
+              f"fee {settings.fee_pct}% (min {settings.min_fee:g}) + slippage {settings.slippage_pct}% per side ===")
+        print(table.to_string())
+        for w in warnings:
+            print(f"  WARNING {w}")
+    return columns
+
+
+def summary_row(columns: dict) -> dict:
+    """One line per backtest for the comparison table."""
+    full = columns.get("full", {})
+    row = {
+        "Return %": fmt(full.get("total_return_pct"), "{:.0f}"),
+        "B&H %": fmt(full.get("bh_total_return_pct"), "{:.0f}"),
+        "Sharpe": fmt(full.get("sharpe"), "{:.2f}"),
+        "B&H Sharpe": fmt(full.get("bh_sharpe"), "{:.2f}"),
+        "MaxDD %": fmt(full.get("max_drawdown_pct"), "{:.0f}"),
+        "Trades": fmt(full.get("trades"), "{:d}"),
+    }
+    for name, s in columns.items():
+        if name != "full":
+            row[f"{name} %"] = fmt(s["total_return_pct"], "{:.0f}")
+            row[f"{name} B&H %"] = fmt(s["bh_total_return_pct"], "{:.0f}")
+    return row
 
 
 def main():
     cfg = load_config()
     parser = argparse.ArgumentParser(description="Backtest a strategy")
-    parser.add_argument("--exchange", default=os.getenv("EXCHANGE") or "binance")
-    parser.add_argument("--symbols", nargs="+", default=["BTC/USDT"])
+    parser.add_argument("--market", default="crypto", choices=list(cfg["markets"]))
+    parser.add_argument("--symbols", nargs="+", help="default: all symbols of the market")
     parser.add_argument("--timeframe", default="1d")
-    parser.add_argument("--strategy", default="sma_cross", choices=available_strategies())
+    parser.add_argument("--strategy", default="sma_cross", choices=[*available_strategies(), "all"])
     parser.add_argument("--params", nargs="*", help="strategy settings, e.g. fast=10 slow=40")
     args = parser.parse_args()
     params = parse_params(args.params)
+    if args.strategy == "all" and params:
+        parser.error("--params only works with a single --strategy")
+
+    symbols = args.symbols or cfg["markets"][args.market]["symbols"]
+    strategies = available_strategies() if args.strategy == "all" else [args.strategy]
+    show_details = len(strategies) == 1
 
     out_dir = ROOT / "backtest" / "results"
     out_dir.mkdir(parents=True, exist_ok=True)
-    for symbol in args.symbols:
-        try:
-            table = backtest_symbol(cfg, args.exchange.lower(), symbol, args.timeframe, args.strategy, params)
-        except FileNotFoundError as e:
-            print(f"\n{symbol}: {e}")
-            continue
-        out = out_dir / f"{args.strategy}_{symbol.replace('/', '-')}_{args.timeframe}.csv"
-        table.to_csv(out)
-        print(f"  Saved report to {out.relative_to(ROOT)}")
+    rows = {}
+    for symbol in symbols:
+        for name in strategies:
+            try:
+                columns = backtest_symbol(cfg, args.market, symbol, args.timeframe, name, params, show_details)
+            except (FileNotFoundError, ValueError) as e:
+                print(f"\n{symbol}: {e}")
+                continue
+            rows[(symbol, name)] = summary_row(columns)
+
+    if rows:
+        summary = pd.DataFrame(rows).T
+        summary.index.names = ["symbol", "strategy"]
+        print(f"\n=== Summary: {args.market} {args.timeframe} (full history, fees included) ===")
+        print(summary.to_string())
+        out = out_dir / f"{args.market}_{args.timeframe}_{args.strategy}.csv"
+        summary.to_csv(out)
+        print(f"\nSaved to {out.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":

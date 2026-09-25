@@ -53,10 +53,15 @@ def load_market_rules(cache_dir: Path, exchange_id: str, symbol: str,
 class BacktestSettings:
     initial_capital: float = 1000.0
     fee_pct: float = 0.1
+    min_fee: float = 0.0           # minimum fee per order (stock/Forex brokers charge one)
     slippage_pct: float = 0.05
     rules: MarketRules = field(default_factory=MarketRules)
     # Ignore tiny rebalances (e.g. 0.50 -> 0.52 exposure) to avoid paying fees for nothing
     rebalance_threshold: float = 0.05
+
+    def fee_for(self, value: float) -> float:
+        """Fee for an order of this value: a percentage, but never less than min_fee."""
+        return max(value * self.fee_pct / 100, self.min_fee)
 
 
 @dataclass
@@ -64,8 +69,8 @@ class Trade:
     """One round trip: from 'no position' to 'no position' again."""
     entry_time: pd.Timestamp
     exit_time: pd.Timestamp | None = None
-    invested: float = 0.0        # USDT paid for all buys, fees included
-    returned: float = 0.0        # USDT received from all sells, after fees
+    invested: float = 0.0        # money paid for all buys, fees included
+    returned: float = 0.0        # money received from all sells, after fees
     orders: int = 0
     exit_reason: str = ""
 
@@ -128,11 +133,14 @@ def run_backtest(candles: pd.DataFrame, strategy: Strategy, settings: BacktestSe
         nonlocal cash, qty, avg_entry, current, skipped
         price = price_before_slip * (1 + slip)
         amount = rules.round_amount(usdt / (price * (1 + fee)))
+        if settings.fee_for(amount * price) > amount * price * fee:   # minimum fee applies
+            amount = rules.round_amount((usdt - settings.min_fee) / price)
         if not rules.is_valid(amount, price):
             skipped += 1
             return
         cost = amount * price
-        paid = cost * (1 + fee)
+        order_fee = settings.fee_for(cost)
+        paid = cost + order_fee
         if current is None:
             current = Trade(entry_time=time)
             avg_entry = price          # any leftover dust is treated as bought at this price
@@ -141,23 +149,24 @@ def run_backtest(candles: pd.DataFrame, strategy: Strategy, settings: BacktestSe
         qty += amount
         current.invested += paid
         current.orders += 1
-        orders.append(dict(time=time, side="buy", price=price, amount=amount, fee=cost * fee, reason=reason))
+        orders.append(dict(time=time, side="buy", price=price, amount=amount, fee=order_fee, reason=reason))
 
     def sell(time, price_before_slip, amount, reason):
         nonlocal cash, qty, avg_entry, current, skipped
         price = price_before_slip * (1 - slip)
         amount = rules.round_amount(min(amount, qty))
-        if not rules.is_valid(amount, price):
+        value = amount * price
+        order_fee = settings.fee_for(value)
+        if not rules.is_valid(amount, price) or order_fee >= value:
             skipped += 1
             return
-        value = amount * price
-        received = value * (1 - fee)
+        received = value - order_fee
         cash += received
         qty -= amount
         if current is not None:
             current.returned += received
             current.orders += 1
-        orders.append(dict(time=time, side="sell", price=price, amount=amount, fee=value * fee, reason=reason))
+        orders.append(dict(time=time, side="sell", price=price, amount=amount, fee=order_fee, reason=reason))
         if is_flat(price):
             # Round trip finished. Any dust left is simply kept and valued in equity.
             if current is not None:
@@ -225,9 +234,11 @@ def buy_and_hold(window: pd.DataFrame, settings: BacktestSettings) -> pd.Series:
     fee = settings.fee_pct / 100
     slip = settings.slippage_pct / 100
     entry = window["open"].iloc[0] * (1 + slip)
-    qty = settings.rules.round_amount(settings.initial_capital / (entry * (1 + fee)))
-    cash = settings.initial_capital - qty * entry * (1 + fee)
+    capital = settings.initial_capital - settings.min_fee   # keep room for a minimum fee
+    qty = settings.rules.round_amount(capital / (entry * (1 + fee)))
+    cash = settings.initial_capital - qty * entry - settings.fee_for(qty * entry)
     curve = cash + qty * window["close"]
     # Pay the exit costs on the final candle
-    curve.iloc[-1] = cash + qty * window["close"].iloc[-1] * (1 - slip) * (1 - fee)
+    exit_value = qty * window["close"].iloc[-1] * (1 - slip)
+    curve.iloc[-1] = cash + exit_value - settings.fee_for(exit_value)
     return curve.rename("buy_hold")

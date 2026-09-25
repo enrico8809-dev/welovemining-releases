@@ -13,7 +13,7 @@ from strategies.base import Strategy
 
 def available_strategies() -> list[str]:
     folder = Path(__file__).parent
-    return sorted(m.name for m in pkgutil.iter_modules([str(folder)]) if m.name != "base")
+    return sorted(m.name for m in pkgutil.iter_modules([str(folder)]) if m.name not in ("base", "indicators"))
 
 
 def load_strategy(name: str, **params) -> Strategy:

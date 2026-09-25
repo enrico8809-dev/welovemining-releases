@@ -29,6 +29,9 @@ def create_exchange(name: str | None = None, with_keys: bool = False) -> ccxt.Ex
     if name.startswith("binance"):
         # Only load spot markets; Binance would otherwise also query its futures API
         settings["options"]["fetchMarkets"] = ["spot"]
+    if os.getenv("HTTPS_PROXY"):
+        # Behind a proxy (office/cloud network): CCXT does not pick this up by itself
+        settings["httpsProxy"] = os.getenv("HTTPS_PROXY")
     if with_keys:
         settings["apiKey"] = os.getenv("API_KEY", "")
         settings["secret"] = os.getenv("API_SECRET", "")
