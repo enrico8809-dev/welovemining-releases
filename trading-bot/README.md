@@ -17,7 +17,8 @@ Give API keys **Read + Spot trading** permission only. Never enable withdrawals.
 |---|---|---|
 | 1 | Data downloader + backtester | ✅ done |
 | 2 | Strategy library (4 strategies) + Forex/stock markets | ✅ done |
-| 3–9 | Regime detector, risk manager, scanner, optimizer, auto-trader, Telegram, dashboard | ⏳ |
+| 3 | Market Regime Detector + regime-switching strategy | ✅ done |
+| 4–9 | Risk manager, scanner, optimizer, auto-trader, Telegram, dashboard | ⏳ |
 
 ## Setup (Windows, one time)
 
@@ -67,10 +68,32 @@ sideways** periods). With `--strategy all` you get one comparison table. Saved t
 | `sma_cross` | In when 10-day average > 40-day average | trends | `fast=10 slow=40` |
 | `rsi_dip` | Buy oversold dips (RSI<30) only in an uptrend (above 200-day SMA) | uptrends | `buy_below=30 sell_above=55 trend_period=200 stop_loss_pct=8` |
 | `grid` | Buy lower / sell higher in steps inside the recent price range; sell all if it breaks down | sideways | `lookback=30 levels=5 stop_pct=5` |
+| `regime` | Picks a strategy per market regime; cash in downtrends (see below) | all | `up=sma_cross sideways=sma_cross` |
 | `dca` | Base order + max 3 safety orders on dips, take profit, hard stop | mild dips in uptrends | `step_pct=5 max_safety=3 take_profit_pct=6 stop_loss_pct=15` |
 
-Each strategy uses at most 2 indicators (less overfitting). Phase 3 will pick the right
-strategy per coin based on the market type (trend up / down / sideways).
+Each strategy uses at most 2 indicators (less overfitting).
+
+## Market Regime Detector (Phase 3)
+
+`bot/regime.py` labels every candle **up**, **down** or **sideways** using 3 measures:
+ADX (trend strength), the 100-candle moving average and its slope (direction) and volatility
+(panic = far above normal = treated as down). A new label must last 3 candles before it is
+accepted, except **down**, which is accepted at once (getting out fast is the safe side).
+
+```bat
+python -m bot.regime                           (current regime per coin + history check)
+python -m bot.regime --market stocks
+python -m backtest.run --strategy regime       (trade with it)
+```
+
+The `regime` strategy uses the strategy set in `config.yaml` for each regime and always holds
+**cash in a downtrend**. Default: `sma_cross` for both up and sideways (backtests showed `grid`
+and cash do worse in sideways markets on daily candles).
+
+What the backtests showed: the regime filter mostly **cuts losses in crashes** (BTC 2022:
+-12% instead of -46%) and lowers the worst drop (BTC -35% instead of -54%), but it also misses
+part of the rebounds, so over the whole history it is not better than plain `sma_cross` on
+every coin. The labels do **not** predict the next 30 days (crypto often bounces after drops).
 
 ## Costs used per market (edit in `config.yaml`)
 

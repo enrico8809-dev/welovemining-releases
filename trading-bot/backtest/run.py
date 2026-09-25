@@ -101,6 +101,7 @@ def backtest_symbol(cfg: dict, market_name: str, symbol: str, timeframe: str,
 
     periods = {"full": (None, None)}
     periods.update({name: (p["start"], p["end"]) for name, p in market.get("periods", {}).items()})
+    params = {**config_params(cfg, strategy_name), **params}   # command-line settings win
 
     columns, warnings = {}, []
     for name, (start, end) in periods.items():
@@ -124,6 +125,15 @@ def backtest_symbol(cfg: dict, market_name: str, symbol: str, timeframe: str,
         for w in warnings:
             print(f"  WARNING {w}")
     return columns
+
+
+def config_params(cfg: dict, strategy_name: str) -> dict:
+    """Default settings for a strategy from config.yaml (only the regime strategy has them)."""
+    if strategy_name != "regime":
+        return {}
+    regime = dict(cfg.get("regime", {}))
+    routes = regime.pop("routes", {})
+    return {**regime, **routes}
 
 
 def summary_row(columns: dict) -> dict:

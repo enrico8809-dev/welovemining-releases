@@ -56,6 +56,16 @@ markets:
       bear:     { start: "2022-01-01", end: "2022-10-31" }
       bull:     { start: "2023-01-01", end: "2024-12-31" }
 
+# Market Regime Detector (bot/regime.py) and the "regime" strategy that uses it
+regime:
+  adx_trend: 20        # ADX at or above this = trending market
+  ma_period: 100       # long-term moving average (candles) for the trend direction
+  vol_high: 2.0        # volatility this many times above normal = panic -> stay in cash
+  confirm: 3           # candles a new regime must last before we switch (down: at once)
+  routes:              # which strategy to use in each regime (down = always cash)
+    up: sma_cross
+    sideways: sma_cross  # backtests: better than grid or cash on daily candles (grid/cash also possible)
+
 data:
   cache_dir: data/cache
 
