@@ -17,6 +17,8 @@ import pandas as pd
 
 from backtest.engine import BacktestSettings, load_market_rules, run_backtest
 from backtest.metrics import summarize
+from backtest.risk_engine import run_backtest_with_risk
+from bot.risk import RiskConfig
 from bot.config import ROOT, load_config
 from data.downloader import load_candles
 from strategies import available_strategies, load_strategy
@@ -91,7 +93,7 @@ def source_of(market: dict) -> str:
 
 
 def backtest_symbol(cfg: dict, market_name: str, symbol: str, timeframe: str,
-                    strategy_name: str, params: dict, show: bool = True) -> dict:
+                    strategy_name: str, params: dict, show: bool = True, use_risk: bool = False) -> dict:
     """Backtest one symbol over the full history and each of the market's periods.
     Returns {period name: summary}."""
     market = cfg["markets"][market_name]
@@ -107,7 +109,11 @@ def backtest_symbol(cfg: dict, market_name: str, symbol: str, timeframe: str,
     for name, (start, end) in periods.items():
         try:
             strategy = load_strategy(strategy_name, **params)
-            result = run_backtest(candles, strategy, settings, start, end)
+            if use_risk:
+                risk_config = RiskConfig.from_config(cfg, fee_pct=settings.fee_pct)
+                result = run_backtest_with_risk(candles, strategy, settings, risk_config, start, end)
+            else:
+                result = run_backtest(candles, strategy, settings, start, end)
         except ValueError as e:
             warnings.append(f"[{name}] skipped: {e}")
             continue
@@ -115,11 +121,14 @@ def backtest_symbol(cfg: dict, market_name: str, symbol: str, timeframe: str,
         s["from"], s["to"] = result.equity.index[0], result.equity.index[-1]
         columns[name] = s
         warnings += [f"[{name}] {w}" for w in s["warnings"]]
+        if name == "full":
+            warnings += [f"[risk] {n}" for n in result.notes]
 
     if show:
         table = pd.DataFrame({col: {label: fmt(s[key], f) for key, label, f in ROWS}
                               for col, s in columns.items()})
-        print(f"\n=== {symbol} {timeframe} | {load_strategy(strategy_name, **params)} | "
+        print(f"\n=== {symbol} {timeframe} | {load_strategy(strategy_name, **params)}"
+              f"{' + RISK MANAGER' if use_risk else ''} | "
               f"fee {settings.fee_pct}% (min {settings.min_fee:g}) + slippage {settings.slippage_pct}% per side ===")
         print(table.to_string())
         for w in warnings:
@@ -162,6 +171,8 @@ def main():
     parser.add_argument("--timeframe", default="1d")
     parser.add_argument("--strategy", default="sma_cross", choices=[*available_strategies(), "all"])
     parser.add_argument("--params", nargs="*", help="strategy settings, e.g. fast=10 slow=40")
+    parser.add_argument("--risk", action="store_true",
+                        help="size trades and add stops with the Risk Manager (config.yaml 'risk:')")
     args = parser.parse_args()
     params = parse_params(args.params)
     if args.strategy == "all" and params:
@@ -177,7 +188,8 @@ def main():
     for symbol in symbols:
         for name in strategies:
             try:
-                columns = backtest_symbol(cfg, args.market, symbol, args.timeframe, name, params, show_details)
+                columns = backtest_symbol(cfg, args.market, symbol, args.timeframe, name, params,
+                                          show_details, use_risk=args.risk)
             except (FileNotFoundError, ValueError) as e:
                 print(f"\n{symbol}: {e}")
                 continue
@@ -186,9 +198,10 @@ def main():
     if rows:
         summary = pd.DataFrame(rows).T
         summary.index.names = ["symbol", "strategy"]
-        print(f"\n=== Summary: {args.market} {args.timeframe} (full history, fees included) ===")
+        risk_text = " with Risk Manager" if args.risk else ""
+        print(f"\n=== Summary: {args.market} {args.timeframe}{risk_text} (full history, fees included) ===")
         print(summary.to_string())
-        out = out_dir / f"{args.market}_{args.timeframe}_{args.strategy}.csv"
+        out = out_dir / f"{args.market}_{args.timeframe}_{args.strategy}{'_risk' if args.risk else ''}.csv"
         summary.to_csv(out)
         print(f"\nSaved to {out.relative_to(ROOT)}")
 

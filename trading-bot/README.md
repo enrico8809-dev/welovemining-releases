@@ -18,7 +18,8 @@ Give API keys **Read + Spot trading** permission only. Never enable withdrawals.
 | 1 | Data downloader + backtester | ✅ done |
 | 2 | Strategy library (4 strategies) + Forex/stock markets | ✅ done |
 | 3 | Market Regime Detector + regime-switching strategy | ✅ done |
-| 4–9 | Risk manager, scanner, optimizer, auto-trader, Telegram, dashboard | ⏳ |
+| 4 | Risk Manager (sizing, stops, hard limits, halts) | ✅ done |
+| 5–9 | Coin scanner, optimizer, auto-trader, Telegram, dashboard | ⏳ |
 
 ## Setup (Windows, one time)
 
@@ -95,6 +96,39 @@ What the backtests showed: the regime filter mostly **cuts losses in crashes** (
 part of the rebounds, so over the whole history it is not better than plain `sma_cross` on
 every coin. The labels do **not** predict the next 30 days (crypto often bounces after drops).
 
+## Risk Manager (Phase 4)
+
+`bot/risk.py`: **every order must be approved here first.** Settings are in the `risk:` section
+of `config.yaml`; the max order size comes from `MAX_ORDER_USDT` in `.env`.
+
+| Rule | Default |
+|---|---|
+| Position size from volatility (ATR): a stop-loss costs ~1% of the account | `risk_per_trade_pct: 1` |
+| Stop-loss on every position: entry - 2 x ATR, never more than 15% below | `stop_atr_mult: 2`, `max_stop_pct: 15` |
+| Trailing stop: highest price since entry - 5 x ATR, only moves up | `trailing_atr_mult: 5` |
+| Max order size / open trades / % of account per trade | `MAX_ORDER_USDT` / 3 / 25% |
+| Never spend more than the cash you have (spot only, no leverage) | always |
+| Daily loss limit: no new trades until tomorrow (UTC) | 3% |
+| Max drawdown from peak: no new trades until **you** reset it | 20% |
+| Cooldown after a losing streak | 3 losses -> 24 h |
+| Pause after too many stop-losses | >3 in 24 h -> 48 h |
+| Kill switch: blocks new trades until reset | Telegram `/stop` in Phase 8 |
+
+Selling to close a position is always allowed. The state (halts, pauses, peak) is saved in
+`data/bot_state.db` (SQLite), so restarting the bot does **not** clear a halt.
+
+```bat
+python -m bot.risk                       (show limits and current state)
+python -m bot.risk --reset --equity 1000 (clear halts; the drawdown peak restarts at 1000)
+python -m backtest.run --risk            (backtest with the Risk Manager)
+python -m backtest.run --market stocks --risk
+```
+
+Backtest results with `--risk` (sma_cross, 2021–2026): much smaller positions (~15% of the
+account), so much lower returns, but the worst drop fell from -54% to **-7%** on BTC and the
+Sharpe ratio rose from 0.62 to **0.81** (buy & hold: 0.61). A 3 x ATR trailing stop closed
+28 of 29 trades too early, so the default is 5 x ATR.
+
 ## Costs used per market (edit in `config.yaml`)
 
 | Market | Fee per side | Minimum fee | Slippage |
@@ -136,7 +170,7 @@ python -m pytest -q
 ## Folder layout
 
 ```
-bot/          core: config, logging, exchange connection (retry with backoff)
+bot/          core: config, logging, exchange (retry with backoff), regime, risk, storage (SQLite)
 strategies/   one file per strategy (drop in a new file and it's picked up automatically)
 backtest/     engine.py (simulator), metrics.py (numbers), run.py (command line report)
 data/         downloader.py (crypto via CCXT), yahoo.py (Forex/stocks); cache in data/cache/

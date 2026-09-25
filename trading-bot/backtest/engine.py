@@ -10,31 +10,13 @@ Every fill pays the fee and slippage, and orders below the exchange minimum
 or with too many decimals are rounded down or skipped - just like a real exchange.
 """
 import json
-import math
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import pandas as pd
 
+from bot.rules import MarketRules
 from strategies.base import Strategy
-
-
-@dataclass
-class MarketRules:
-    """Exchange limits for one trading pair."""
-    min_cost: float = 5.0          # minimum order value in USDT
-    min_amount: float = 0.0        # minimum coin amount
-    amount_step: float = 0.00001   # coin amount must be a multiple of this
-
-    def round_amount(self, amount: float) -> float:
-        """Round DOWN to the allowed step (rounding up could spend money we don't have)."""
-        if not self.amount_step:
-            return amount
-        steps = math.floor(amount / self.amount_step + 1e-9)
-        return round(steps * self.amount_step, 12)
-
-    def is_valid(self, amount: float, price: float) -> bool:
-        return amount > 0 and amount >= self.min_amount and amount * price >= self.min_cost
 
 
 def load_market_rules(cache_dir: Path, exchange_id: str, symbol: str,
@@ -91,6 +73,7 @@ class BacktestResult:
     skipped_orders: int               # orders not placed because they were below the minimum
     buy_hold_equity: pd.Series
     initial_capital: float
+    notes: list[str] = field(default_factory=list)   # e.g. Risk Manager halts and pauses
 
 
 def run_backtest(candles: pd.DataFrame, strategy: Strategy, settings: BacktestSettings,
@@ -103,13 +86,7 @@ def run_backtest(candles: pd.DataFrame, strategy: Strategy, settings: BacktestSe
     target = target.fillna(0).clip(0, 1)          # spot only: never short, never leverage
     wanted = target.shift(1).fillna(0)
 
-    window = candles
-    if start:
-        window = window[window.index >= pd.Timestamp(start, tz="UTC")]
-    if end:
-        window = window[window.index < pd.Timestamp(end, tz="UTC") + pd.Timedelta(days=1)]
-    if len(window) < 2:
-        raise ValueError("Not enough candles in the selected period")
+    window = select_window(candles, start, end)
     wanted = wanted.loc[window.index]
 
     fee = settings.fee_pct / 100
@@ -227,6 +204,18 @@ def run_backtest(candles: pd.DataFrame, strategy: Strategy, settings: BacktestSe
         buy_hold_equity=buy_and_hold(window, settings),
         initial_capital=settings.initial_capital,
     )
+
+
+def select_window(candles: pd.DataFrame, start: str | None, end: str | None) -> pd.DataFrame:
+    """The candles between start and end (YYYY-MM-DD, both inclusive)."""
+    window = candles
+    if start:
+        window = window[window.index >= pd.Timestamp(start, tz="UTC")]
+    if end:
+        window = window[window.index < pd.Timestamp(end, tz="UTC") + pd.Timedelta(days=1)]
+    if len(window) < 2:
+        raise ValueError("Not enough candles in the selected period")
+    return window
 
 
 def buy_and_hold(window: pd.DataFrame, settings: BacktestSettings) -> pd.Series:
