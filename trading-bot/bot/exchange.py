@@ -26,6 +26,9 @@ def create_exchange(name: str | None = None, with_keys: bool = False) -> ccxt.Ex
         "enableRateLimit": True,               # CCXT waits between calls to respect rate limits
         "options": {"defaultType": "spot"},    # spot market only - never futures/margin
     }
+    if name.startswith("binance"):
+        # Only load spot markets; Binance would otherwise also query its futures API
+        settings["options"]["fetchMarkets"] = ["spot"]
     if with_keys:
         settings["apiKey"] = os.getenv("API_KEY", "")
         settings["secret"] = os.getenv("API_SECRET", "")
