@@ -18,7 +18,14 @@
       // The accounting engine is shared with the phone app rather than copied.
       // Every module behind this alias is plain TypeScript with no React Native
       // or Expo imports, which is what makes one engine possible at all.
-      "@engine/*": ["../wlm-accounting/src/lib/*"]
+      "@engine/*": ["../wlm-accounting/src/lib/*"],
+      // For the same reason the bundler dedupes them: the engine's sources sit
+      // outside this package, so the compiler would otherwise look for their
+      // React types in the phone app's node_modules.
+      "react": ["./node_modules/@types/react"],
+      "react/*": ["./node_modules/@types/react/*"],
+      "react-dom": ["./node_modules/@types/react-dom"],
+      "react-dom/*": ["./node_modules/@types/react-dom/*"]
     }
   },
   "include": ["src", "scripts", "vite.config.mts"]
