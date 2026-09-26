@@ -23,7 +23,7 @@ Give API keys **Read + Spot trading** permission only. Never enable withdrawals.
 | 6 | Walk-forward Optimizer | ✅ done |
 | 7 | Auto-Trader (crypto via CCXT, stocks/Forex via Interactive Brokers) | ✅ done |
 | 8 | Telegram alerts and commands | ✅ done |
-| 9 | Dashboard | ⏳ |
+| 9 | Local web dashboard | ✅ done |
 
 ## Setup (Windows, one time)
 
@@ -236,6 +236,14 @@ Setup (one time):
    `"chat":{"id":`.
 3. In `.env`: `TELEGRAM_BOT_TOKEN=...` and `TELEGRAM_CHAT_ID=...`
 4. Test: `python -m bot.telegram --test`. Then start the bot as usual; Telegram runs inside it.
+
+## Dashboard (Phase 9)
+
+Double-click **`dashboard.bat`** (or run `python -m bot.dashboard`) and it opens
+**http://localhost:8050** with: account value per market, the equity curve, open positions with
+their stops, performance per exit reason, P&L per symbol and the full trade history.
+It refreshes every 30 seconds, works on a phone-sized window, only **reads** the database (it
+cannot trade) and only listens on your own PC.
 
 ## Costs used per market (edit in `config.yaml`)
 
