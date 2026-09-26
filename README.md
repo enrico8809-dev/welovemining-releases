@@ -54,6 +54,11 @@ live order tracking. Green & grey, Android-first. **18+ only.**
 The APK is built on EAS and auto-published to the release above by GitHub Actions
 (needs an `EXPO_TOKEN` repo secret). See [`mr-dweedery/README.md`](mr-dweedery/README.md).
 
+## WLM Trading Bot 📈 (crypto spot bot)
+
+Personal CCXT spot-trading bot (Binance first). Paper mode by default, spot only, never withdraws.
+See [`trading-bot/README.md`](trading-bot/README.md).
+
 ## Support
 
 **enrico@welovemining.co.za** · [welovemining.co.za](https://welovemining.co.za)

@@ -1,0 +1,137 @@
+# WeLoveMining Trading Bot - settings (no secrets here; keys live in .env)
+
+# ---------------------------------------------------------------------------
+# Markets. Each market has its own data source, coins/symbols, costs and test periods.
+#   source: ccxt  -> crypto exchange from EXCHANGE in .env (binance, luno, ...)
+#   source: yahoo -> Yahoo Finance history for Forex, stocks, ETFs, gold (backtesting only;
+#                    live trading of these markets will go through Interactive Brokers)
+# Costs:  fee_pct = % of order value per side, min_fee = minimum fee per order
+#         (in the pair's quote currency), slippage_pct = price slippage per side.
+# min_order = smallest order value, amount_step = smallest amount increment.
+# Everything is spot/cash only: never shorting, never leverage (Forex is traded 1:1).
+# ---------------------------------------------------------------------------
+markets:
+  crypto:
+    source: ccxt
+    history_start: "2021-01-01"
+    timeframes: ["1d", "1h"]
+    symbols: [BTC/USDT, ETH/USDT, BNB/USDT, SOL/USDT, XRP/USDT]
+    fee_pct: 0.1
+    min_fee: 0
+    slippage_pct: 0.05
+    min_order: 5              # only used if the exchange's own minimums are not downloaded
+    amount_step: 0.00001
+    periods:                  # based on BTC's history
+      bear:     { start: "2022-01-01", end: "2022-12-31" }
+      bull:     { start: "2023-01-01", end: "2024-03-31" }
+      sideways: { start: "2024-04-01", end: "2024-10-31" }
+
+  forex:
+    source: yahoo
+    history_start: "2012-01-01"
+    timeframes: ["1d", "1h"]  # Yahoo only has the last ~2 years of hourly Forex data
+    symbols: [EURUSD=X, GBPUSD=X, AUDUSD=X, USDJPY=X, USDZAR=X]
+    fee_pct: 0.002            # Interactive Brokers: 0.2 basis points...
+    min_fee: 2                # ...with a 2 USD minimum per order
+    slippage_pct: 0.01
+    min_order: 100
+    amount_step: 1            # whole currency units
+    periods:                  # based on EUR/USD's history
+      sideways: { start: "2015-03-01", end: "2016-12-31" }
+      bear:     { start: "2021-06-01", end: "2022-09-30" }
+      bull:     { start: "2022-10-01", end: "2023-07-31" }
+
+  stocks:                     # US stocks and ETFs (incl. gold via GLD)
+    source: yahoo
+    history_start: "2012-01-01"
+    timeframes: ["1d"]
+    symbols: [SPY, QQQ, GLD, AAPL, MSFT, NVDA]
+    fee_pct: 0.05             # Interactive Brokers "tiered": ~0.0035 USD/share + exchange fees...
+    min_fee: 0.35             # ...with a 0.35 USD minimum per order
+    slippage_pct: 0.02
+    min_order: 1
+    amount_step: 0.0001       # fractional shares
+    periods:                  # based on the S&P 500 (SPY)
+      sideways: { start: "2015-01-01", end: "2016-06-30" }
+      bear:     { start: "2022-01-01", end: "2022-10-31" }
+      bull:     { start: "2023-01-01", end: "2024-12-31" }
+
+# Market Regime Detector (bot/regime.py) and the "regime" strategy that uses it
+regime:
+  adx_trend: 20        # ADX at or above this = trending market
+  ma_period: 100       # long-term moving average (candles) for the trend direction
+  vol_high: 2.0        # volatility this many times above normal = panic -> stay in cash
+  confirm: 3           # candles a new regime must last before we switch (down: at once)
+  routes:              # which strategy to use in each regime (down = always cash)
+    up: sma_cross
+    sideways: sma_cross  # backtests: better than grid or cash on daily candles (grid/cash also possible)
+
+# Risk Manager (bot/risk.py): every order is checked here first. The max order size per
+# trade comes from MAX_ORDER_USDT in .env.
+risk:
+  max_open_trades: 3
+  max_pct_per_trade: 25        # never more than 25% of the account in one position
+  risk_per_trade_pct: 1        # size positions so a stop-loss costs about 1% of the account
+  atr_period: 14               # ATR = average candle range over this many candles (volatility)
+  stop_atr_mult: 2             # stop-loss = entry - 2 x ATR ...
+  max_stop_pct: 15             # ... but never more than 15% below the entry
+  trailing_atr_mult: 5         # trailing stop = highest price since entry - 5 x ATR (only moves up;
+                               # 3 x ATR cut trends short in backtests)
+  daily_loss_limit_pct: 3      # down 3% today -> no new trades until tomorrow (UTC)
+  max_drawdown_pct: 20         # down 20% from the peak -> no new trades until you reset
+  losing_streak: 3             # 3 losing trades in a row ...
+  cooldown_hours: 24           # ... -> no new trades for 24 hours
+  max_stops: 3                 # more than 3 stop-losses ...
+  stops_window_hours: 24       # ... within 24 hours ...
+  stops_pause_hours: 48        # ... -> pause 48 hours
+
+# Coin Scanner (bot/scanner.py): which USDT spot pairs are liquid enough to trade
+scanner:
+  min_volume_usdt: 10000000    # at least 10 million USDT traded in the last 24 hours
+  max_spread_pct: 0.1          # bid/ask gap at most 0.1% of the price
+  top_n: 20                    # keep the 20 pairs with the highest volume
+
+# Optimizer (backtest/optimize.py): walk-forward tuning. Small grids on purpose: the more
+# combinations you try, the easier it is to find one that only worked by luck.
+optimizer:
+  train_days: 730              # tune on 2 years ...
+  test_days: 180               # ... then test on the next 6 months (never seen), slide, repeat
+  objective: sharpe            # sharpe or calmar (risk-adjusted, not raw profit)
+  min_trades: 3                # a setting needs at least this many trades in a train window
+  min_efficiency: 0.5          # test score must be >= 50% of the train score, else REJECT
+  grids:
+    sma_cross: { fast: [5, 10, 20], slow: [30, 40, 60, 100] }
+    rsi_dip:   { buy_below: [25, 30, 35], sell_above: [50, 60], trend_period: [100, 200] }
+    grid:      { lookback: [20, 30, 60], levels: [3, 5, 8], stop_pct: [3, 5, 10] }
+    dca:       { step_pct: [3, 5, 8], max_safety: [2, 3], take_profit_pct: [4, 6, 10] }
+    regime:    { adx_trend: [15, 20, 25], ma_period: [50, 100, 200] }
+
+# Auto-Trader (bot/trader.py). PAPER unless LIVE_TRADING=true in .env.
+trader:
+  markets: [crypto, stocks, forex]   # remove a market to stop trading it
+  strategy: regime                   # uses the regime settings above
+  loop_seconds: 300                  # check prices and stops every 5 minutes
+  paper_capital:                     # starting money for PAPER trading, per market
+    crypto: 1000                     # USDT
+    stocks: 1000                     # USD
+    forex: 1000                      # USD (only XXX/USD pairs can be bought with USD cash)
+  # public_url: https://data-api.binance.vision/api/v3   # optional price source if Binance blocks you
+
+# Interactive Brokers (LIVE stocks/Forex only). Start TWS or IB Gateway and enable the API:
+# TWS -> Settings -> API -> "Enable ActiveX and Socket Clients". Paper account port 7497, live 7496.
+ibkr:
+  host: 127.0.0.1
+  port: 7497
+  client_id: 17
+
+data:
+  cache_dir: data/cache
+
+backtest:
+  initial_capital: 1000       # starting money, in the pair's quote currency (USDT, USD, ZAR, ...)
+  min_trades_warning: 30      # fewer trades than this = result not statistically meaningful
+
+logging:
+  dir: logs
+  level: INFO
+  keep_days: 30

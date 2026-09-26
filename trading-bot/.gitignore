@@ -1,0 +1,13 @@
+# Secrets
+.env
+# Downloaded candles, results, logs, databases (all re-creatable)
+data/cache/
+backtest/results/
+logs/*
+!logs/.gitkeep
+*.db
+trades.csv
+__pycache__/
+.pytest_cache/
+.venv/
+data/scanner_latest.json
