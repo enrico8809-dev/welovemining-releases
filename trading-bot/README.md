@@ -19,7 +19,8 @@ Give API keys **Read + Spot trading** permission only. Never enable withdrawals.
 | 2 | Strategy library (4 strategies) + Forex/stock markets | ✅ done |
 | 3 | Market Regime Detector + regime-switching strategy | ✅ done |
 | 4 | Risk Manager (sizing, stops, hard limits, halts) | ✅ done |
-| 5–9 | Coin scanner, optimizer, auto-trader, Telegram, dashboard | ⏳ |
+| 5 | Coin Scanner (liquid USDT pairs) | ✅ done |
+| 6–9 | Optimizer, auto-trader, Telegram, dashboard | ⏳ |
 
 ## Setup (Windows, one time)
 
@@ -128,6 +129,25 @@ Backtest results with `--risk` (sma_cross, 2021–2026): much smaller positions 
 account), so much lower returns, but the worst drop fell from -54% to **-7%** on BTC and the
 Sharpe ratio rose from 0.62 to **0.81** (buy & hold: 0.61). A 3 x ATR trailing stop closed
 28 of 29 trades too early, so the default is 5 x ATR.
+
+## Coin Scanner (Phase 5)
+
+`bot/scanner.py` checks **every** USDT spot pair on the exchange with one request and keeps the
+tradeable ones (settings in the `scanner:` section of `config.yaml`):
+
+1. Removes stablecoins (USDC, FDUSD...), fiat (EUR, TRY...) and leveraged tokens (BTCUP, ETH3L...).
+2. Keeps pairs with at least **10 million USDT** traded in 24 h and a bid/ask spread of at most **0.1%**.
+3. Ranks them by volume and keeps the **top 20**. The list is saved to `data/scanner_latest.json`
+   for the auto-trader (Phase 7).
+
+```bat
+python -m bot.scanner                                   (show and save the list)
+python -m bot.scanner --download                        (also download their daily candles)
+python -m backtest.run --scanned --strategy regime --risk   (backtest all scanned coins)
+```
+
+Careful with backtests of scanned coins: today's top coins are the ones that **survived and grew**,
+so their past looks better than a random coin's would have (survivorship bias).
 
 ## Costs used per market (edit in `config.yaml`)
 

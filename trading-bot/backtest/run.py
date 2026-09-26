@@ -168,6 +168,8 @@ def main():
     parser = argparse.ArgumentParser(description="Backtest a strategy")
     parser.add_argument("--market", default="crypto", choices=list(cfg["markets"]))
     parser.add_argument("--symbols", nargs="+", help="default: all symbols of the market")
+    parser.add_argument("--scanned", action="store_true",
+                        help="crypto: use the coins from the last Coin Scanner run (python -m bot.scanner)")
     parser.add_argument("--timeframe", default="1d")
     parser.add_argument("--strategy", default="sma_cross", choices=[*available_strategies(), "all"])
     parser.add_argument("--params", nargs="*", help="strategy settings, e.g. fast=10 slow=40")
@@ -179,6 +181,11 @@ def main():
         parser.error("--params only works with a single --strategy")
 
     symbols = args.symbols or cfg["markets"][args.market]["symbols"]
+    if args.scanned:
+        from bot.scanner import load_saved
+        symbols = load_saved()
+        if not symbols:
+            parser.error("no scan found: run  python -m bot.scanner --download  first")
     strategies = available_strategies() if args.strategy == "all" else [args.strategy]
     show_details = len(strategies) == 1
 
@@ -196,7 +203,7 @@ def main():
             rows[(symbol, name)] = summary_row(columns)
 
     if rows:
-        summary = pd.DataFrame(rows).T
+        summary = pd.DataFrame(rows).T.fillna("n/a")   # n/a = coin did not exist in that period
         summary.index.names = ["symbol", "strategy"]
         risk_text = " with Risk Manager" if args.risk else ""
         print(f"\n=== Summary: {args.market} {args.timeframe}{risk_text} (full history, fees included) ===")

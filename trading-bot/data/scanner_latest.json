@@ -1,0 +1,146 @@
+{
+  "exchange": "binance",
+  "scanned_at": "2026-09-26T06:39:14.334094+00:00",
+  "symbols": [
+    {
+      "symbol": "BTC/USDT",
+      "volume_24h": 1425205011.156486,
+      "spread_pct": 1.1916393859412304e-05,
+      "change_24h_pct": -0.031,
+      "last_price": 83918.01
+    },
+    {
+      "symbol": "ETH/USDT",
+      "volume_24h": 581388261.693319,
+      "spread_pct": 0.0003723985632944715,
+      "change_24h_pct": 0.545,
+      "last_price": 2685.3
+    },
+    {
+      "symbol": "XRP/USDT",
+      "volume_24h": 506235287.14837,
+      "spread_pct": 0.006458488067942583,
+      "change_24h_pct": 1.534,
+      "last_price": 1.5484
+    },
+    {
+      "symbol": "SOL/USDT",
+      "volume_24h": 464429824.95615,
+      "spread_pct": 0.008303923603907092,
+      "change_24h_pct": 3.676,
+      "last_price": 120.43
+    },
+    {
+      "symbol": "ZEC/USDT",
+      "volume_24h": 292180529.1204,
+      "spread_pct": 0.0006521519383580056,
+      "change_24h_pct": -0.259,
+      "last_price": 1533.38
+    },
+    {
+      "symbol": "NEAR/USDT",
+      "volume_24h": 258727964.9199,
+      "spread_pct": 0.02023267577135955,
+      "change_24h_pct": 10.582,
+      "last_price": 4.943
+    },
+    {
+      "symbol": "SUI/USDT",
+      "volume_24h": 187121241.83803,
+      "spread_pct": 0.008644163028913774,
+      "change_24h_pct": 14.387,
+      "last_price": 1.1568
+    },
+    {
+      "symbol": "ENA/USDT",
+      "volume_24h": 132666313.50157,
+      "spread_pct": 0.03747423646244875,
+      "change_24h_pct": 21.208,
+      "last_price": 0.2669
+    },
+    {
+      "symbol": "UNI/USDT",
+      "volume_24h": 112031222.8465,
+      "spread_pct": 0.010267467529128249,
+      "change_24h_pct": 7.233,
+      "last_price": 9.74
+    },
+    {
+      "symbol": "DOGE/USDT",
+      "volume_24h": 105755314.14123,
+      "spread_pct": 0.010260093366845661,
+      "change_24h_pct": 3.023,
+      "last_price": 0.09746
+    },
+    {
+      "symbol": "BNB/USDT",
+      "volume_24h": 92049407.94067,
+      "spread_pct": 0.0012946408342653763,
+      "change_24h_pct": -0.047,
+      "last_price": 772.42
+    },
+    {
+      "symbol": "LINK/USDT",
+      "volume_24h": 80301492.26406,
+      "spread_pct": 0.007141071874884463,
+      "change_24h_pct": 4.93,
+      "last_price": 14.004
+    },
+    {
+      "symbol": "BABY/USDT",
+      "volume_24h": 69069235.57116,
+      "spread_pct": 0.07099751508696907,
+      "change_24h_pct": 10.77,
+      "last_price": 0.01409
+    },
+    {
+      "symbol": "WLD/USDT",
+      "volume_24h": 64970026.67849,
+      "spread_pct": 0.020731833730691197,
+      "change_24h_pct": 10.668,
+      "last_price": 0.4824
+    },
+    {
+      "symbol": "ADA/USDT",
+      "volume_24h": 64714789.98974,
+      "spread_pct": 0.03926958570586648,
+      "change_24h_pct": 3.201,
+      "last_price": 0.2547
+    },
+    {
+      "symbol": "LTC/USDT",
+      "volume_24h": 59556429.82303,
+      "spread_pct": 0.013748539217695614,
+      "change_24h_pct": 2.12,
+      "last_price": 72.74
+    },
+    {
+      "symbol": "ONDO/USDT",
+      "volume_24h": 57436020.61422,
+      "spread_pct": 0.01828320687448377,
+      "change_24h_pct": 1.334,
+      "last_price": 0.547
+    },
+    {
+      "symbol": "TAO/USDT",
+      "volume_24h": 53782035.73721,
+      "spread_pct": 0.03221130616847245,
+      "change_24h_pct": 4.547,
+      "last_price": 310.4
+    },
+    {
+      "symbol": "AVAX/USDT",
+      "volume_24h": 53565449.17252,
+      "spread_pct": 0.009420187461725267,
+      "change_24h_pct": 4.757,
+      "last_price": 10.615
+    },
+    {
+      "symbol": "XPL/USDT",
+      "volume_24h": 51367256.612563,
+      "spread_pct": 0.008905909070664936,
+      "change_24h_pct": -4.353,
+      "last_price": 0.11229
+    }
+  ]
+}

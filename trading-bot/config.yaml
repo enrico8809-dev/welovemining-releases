@@ -85,6 +85,12 @@ risk:
   stops_window_hours: 24       # ... within 24 hours ...
   stops_pause_hours: 48        # ... -> pause 48 hours
 
+# Coin Scanner (bot/scanner.py): which USDT spot pairs are liquid enough to trade
+scanner:
+  min_volume_usdt: 10000000    # at least 10 million USDT traded in the last 24 hours
+  max_spread_pct: 0.1          # bid/ask gap at most 0.1% of the price
+  top_n: 20                    # keep the 20 pairs with the highest volume
+
 data:
   cache_dir: data/cache
 
