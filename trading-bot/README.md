@@ -21,7 +21,8 @@ Give API keys **Read + Spot trading** permission only. Never enable withdrawals.
 | 4 | Risk Manager (sizing, stops, hard limits, halts) | ✅ done |
 | 5 | Coin Scanner (liquid USDT pairs) | ✅ done |
 | 6 | Walk-forward Optimizer | ✅ done |
-| 7–9 | auto-trader, Telegram, dashboard | ⏳ |
+| 7 | Auto-Trader (crypto via CCXT, stocks/Forex via Interactive Brokers) | ✅ done |
+| 8–9 | Telegram, dashboard | ⏳ |
 
 ## Setup (Windows, one time)
 
@@ -175,6 +176,44 @@ beat the default settings on unseen data, e.g. `sma_cross` tuned 0.37 vs default
 That means the defaults are not curve-fitted, and chasing "better" settings would only have
 fitted the past.
 
+## Auto-Trader (Phase 7)
+
+`bot/trader.py` runs 24/7. Every 5 minutes, for each market in `config.yaml` → `trader.markets`:
+
+1. **Watch list**: crypto = the Coin Scanner's top 20 (re-scanned daily); stocks/Forex = your list.
+2. **Open positions**: check the stop-loss / trailing stop with the live price; sell if the
+   strategy says "out".
+3. **New trades**: if the strategy (default `regime`) says "in" on the last **closed** daily
+   candle, the **Risk Manager** sizes and approves the order. Nothing else can place orders.
+4. Update the account value (daily loss / drawdown limits) and save everything to SQLite.
+
+| Market | PAPER mode (default) | LIVE mode (`LIVE_TRADING=true`) |
+|---|---|---|
+| Crypto | live Binance prices, simulated fills | real spot orders via your API keys |
+| Stocks, ETFs, gold | live Yahoo prices, simulated fills | real orders via Interactive Brokers |
+| Forex | same (only XXX/USD pairs: with USD cash you can't buy USD/JPY without borrowing) | Interactive Brokers, 1:1 |
+
+On start-up the bot **reconciles** its saved positions with the exchange (e.g. after a crash or
+if you sold something by hand). Paper balances start at 1000 per market (`trader.paper_capital`).
+
+**Double-click to use it on Windows:**
+
+| File | What it does |
+|---|---|
+| `start_bot.bat` | starts the bot (restarts it after a crash; stops for good after the kill switch) |
+| `status_bot.bat` | positions, cash, halts and last trades |
+| `kill_bot.bat` | **KILL SWITCH**: cancels open orders, blocks new trades, stops the bot |
+
+Or in the terminal: `python -m bot.trader` (`--once`, `--status`, `--kill`, `--clear-stop`).
+After the kill switch: `python -m bot.risk --reset` and `python -m bot.trader --clear-stop`.
+
+### Going live (only when you're happy with weeks of paper results)
+1. **Crypto:** create a Binance API key with **Read + Spot trading only** (never withdrawals;
+   restrict it to your home IP). Put it in `.env` as `API_KEY` / `API_SECRET`.
+2. **Stocks/Forex:** install TWS or IB Gateway, log in (try the **paper** account first: port
+   7497), enable the API (Settings → API → "Enable ActiveX and Socket Clients").
+3. Keep `MAX_ORDER_USDT` small at first, then set `LIVE_TRADING=true` in `.env`.
+
 ## Costs used per market (edit in `config.yaml`)
 
 | Market | Fee per side | Minimum fee | Slippage |
@@ -216,7 +255,7 @@ python -m pytest -q
 ## Folder layout
 
 ```
-bot/          core: config, logging, exchange (retry with backoff), regime, risk, storage (SQLite)
+bot/          core: config, logging, exchange, regime, risk, scanner, broker, trader, storage (SQLite)
 strategies/   one file per strategy (drop in a new file and it's picked up automatically)
 backtest/     engine.py (simulator), metrics.py (numbers), run.py (command line report)
 data/         downloader.py (crypto via CCXT), yahoo.py (Forex/stocks); cache in data/cache/

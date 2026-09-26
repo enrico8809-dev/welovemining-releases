@@ -106,6 +106,24 @@ optimizer:
     dca:       { step_pct: [3, 5, 8], max_safety: [2, 3], take_profit_pct: [4, 6, 10] }
     regime:    { adx_trend: [15, 20, 25], ma_period: [50, 100, 200] }
 
+# Auto-Trader (bot/trader.py). PAPER unless LIVE_TRADING=true in .env.
+trader:
+  markets: [crypto, stocks, forex]   # remove a market to stop trading it
+  strategy: regime                   # uses the regime settings above
+  loop_seconds: 300                  # check prices and stops every 5 minutes
+  paper_capital:                     # starting money for PAPER trading, per market
+    crypto: 1000                     # USDT
+    stocks: 1000                     # USD
+    forex: 1000                      # USD (only XXX/USD pairs can be bought with USD cash)
+  # public_url: https://data-api.binance.vision/api/v3   # optional price source if Binance blocks you
+
+# Interactive Brokers (LIVE stocks/Forex only). Start TWS or IB Gateway and enable the API:
+# TWS -> Settings -> API -> "Enable ActiveX and Socket Clients". Paper account port 7497, live 7496.
+ibkr:
+  host: 127.0.0.1
+  port: 7497
+  client_id: 17
+
 data:
   cache_dir: data/cache
 

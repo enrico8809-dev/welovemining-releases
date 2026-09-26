@@ -91,17 +91,19 @@ def _parse(s: str) -> datetime:
 class RiskManager:
     STATE_KEY = "risk_state"
 
-    def __init__(self, config: RiskConfig, store=None, quiet: bool = False):
+    def __init__(self, config: RiskConfig, store=None, quiet: bool = False, market: str = ""):
         self.config = config
         self.store = store
         self.quiet = quiet            # True in backtests: don't log every halt/pause
-        saved = store.get(self.STATE_KEY) if store else None
+        # Each market (crypto / stocks / forex) is a separate account with its own limits
+        self.key = f"{self.STATE_KEY}:{market}" if market else self.STATE_KEY
+        saved = store.get(self.key) if store else None
         self.state = RiskState(**saved) if saved else RiskState()
 
     # ----------------------------------------------------------------- state
     def _save(self) -> None:
         if self.store:
-            self.store.set(self.STATE_KEY, asdict(self.state))
+            self.store.set(self.key, asdict(self.state))
 
     def update_equity(self, equity: float, now: datetime) -> None:
         """Call regularly (every loop / candle) with the account value (cash + positions)."""
@@ -231,15 +233,20 @@ def main():
     parser = argparse.ArgumentParser(description="Show or reset the Risk Manager state")
     parser.add_argument("--reset", action="store_true", help="clear halts, pauses and the drawdown peak")
     parser.add_argument("--equity", type=float, help="with --reset: your current account value")
+    parser.add_argument("--market", default="all", help="crypto, stocks, forex or all")
     args = parser.parse_args()
 
-    rm = RiskManager(RiskConfig.from_config(load_config()), StateStore())
-    if args.reset:
-        rm.reset(args.equity)
-        print("Risk Manager reset.")
-    print("Limits:", asdict(rm.config))
-    print("State: ", asdict(rm.state))
-    print("New buys:", rm.blocked_reason(datetime.now(timezone.utc)) or "allowed")
+    cfg = load_config()
+    store = StateStore()
+    markets = list(cfg["markets"]) if args.market == "all" else [args.market]
+    for market in markets:
+        rm = RiskManager(RiskConfig.from_config(cfg, cfg["markets"][market]["fee_pct"]), store, market=market)
+        if args.reset:
+            rm.reset(args.equity)
+            print(f"[{market}] Risk Manager reset.")
+        print(f"\n[{market}] state:", asdict(rm.state))
+        print(f"[{market}] new buys:", rm.blocked_reason(datetime.now(timezone.utc)) or "allowed")
+    print("\nLimits:", asdict(RiskConfig.from_config(cfg)))
 
 
 if __name__ == "__main__":
