@@ -130,8 +130,24 @@ class CcxtBroker(Broker):
             return None
         filled = float(order.get("filled") or amount)
         avg = float(order.get("average") or order.get("price") or price)
-        fee = float((order.get("fee") or {}).get("cost") or filled * avg * 0.001)
-        return Fill(filled, avg, fee)
+        return self._net_fill(symbol, side, filled, avg, order.get("fees") or [order.get("fee") or {}])
+
+    def _net_fill(self, symbol, side, filled, avg, fees) -> Fill:
+        """Binance takes the buy fee IN THE COIN you bought (unless you pay fees in BNB):
+        buy 0.001 BTC -> you hold 0.000999. Keep the amount we REALLY hold, and the fee in USDT."""
+        base = symbol.split("/")[0]
+        qty, fee_quote = filled, 0.0
+        for f in fees:
+            cost = float(f.get("cost") or 0)
+            if f.get("currency") == base:
+                if side == "buy":
+                    qty -= cost
+                fee_quote += cost * avg
+            elif f.get("currency") == self.quote:
+                fee_quote += cost
+            elif cost:                                  # e.g. paid in BNB: approximate at 0.075%
+                fee_quote += filled * avg * 0.00075
+        return Fill(qty, avg, fee_quote)
 
     def _find_fill(self, symbol, side, since_ms):
         try:
@@ -144,15 +160,20 @@ class CcxtBroker(Broker):
             log.warning("%s %s did NOT go through", side, symbol)
             return None
         qty = sum(t["amount"] for t in mine)
-        cost = sum(t["cost"] for t in mine)
-        fee = sum((t.get("fee") or {}).get("cost") or 0 for t in mine)
-        log.warning("%s %s DID go through: %.8f @ %.8f", side, symbol, qty, cost / qty)
-        return Fill(qty, cost / qty, fee)
+        avg = sum(t["cost"] for t in mine) / qty
+        log.warning("%s %s DID go through: %.8f @ %.8f", side, symbol, qty, avg)
+        return self._net_fill(symbol, side, qty, avg, [t.get("fee") or {} for t in mine])
 
     def buy(self, symbol, decision, price):
         return self._order(symbol, "buy", decision, price)
 
     def sell(self, symbol, decision, price):
+        # Never try to sell more than we really have (fees, dust, a manual sale...)
+        require_approval(decision)
+        free = float((with_retry(self.ex.fetch_balance).get("free") or {}).get(symbol.split("/")[0]) or 0)
+        if free < decision.amount:
+            log.warning("%s: selling %.8f instead of %.8f (that's what is free)", symbol, free, decision.amount)
+            decision = Decision(True, decision.reason, amount=free)
         return self._order(symbol, "sell", decision, price)
 
     def cancel_all(self):
