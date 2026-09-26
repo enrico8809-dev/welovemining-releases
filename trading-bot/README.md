@@ -22,7 +22,8 @@ Give API keys **Read + Spot trading** permission only. Never enable withdrawals.
 | 5 | Coin Scanner (liquid USDT pairs) | ✅ done |
 | 6 | Walk-forward Optimizer | ✅ done |
 | 7 | Auto-Trader (crypto via CCXT, stocks/Forex via Interactive Brokers) | ✅ done |
-| 8–9 | Telegram, dashboard | ⏳ |
+| 8 | Telegram alerts and commands | ✅ done |
+| 9 | Dashboard | ⏳ |
 
 ## Setup (Windows, one time)
 
@@ -213,6 +214,28 @@ After the kill switch: `python -m bot.risk --reset` and `python -m bot.trader --
 2. **Stocks/Forex:** install TWS or IB Gateway, log in (try the **paper** account first: port
    7497), enable the API (Settings → API → "Enable ActiveX and Socket Clients").
 3. Keep `MAX_ORDER_USDT` small at first, then set `LIVE_TRADING=true` in `.env`.
+
+## Telegram (Phase 8)
+
+The bot sends you **every trade, errors and a daily P&L summary**, and obeys these commands
+(only from **your** chat ID, messages from anyone else are ignored):
+
+| Command | What it does |
+|---|---|
+| `/status` | mode, pause/stop state, halts, number of positions |
+| `/balance` | cash and account value per market |
+| `/positions` | open positions with current P&L and stop |
+| `/trades` | last 10 trades |
+| `/pause` / `/resume` | stop / allow new trades (stops keep protecting open positions) |
+| `/stop` | **KILL SWITCH** (cancel open orders, block new trades, stop the bot) |
+
+Setup (one time):
+1. In Telegram, open **@BotFather** → `/newbot` → copy the **token**.
+2. Send any message to your new bot, then open
+   `https://api.telegram.org/bot<TOKEN>/getUpdates` in your browser and copy the number after
+   `"chat":{"id":`.
+3. In `.env`: `TELEGRAM_BOT_TOKEN=...` and `TELEGRAM_CHAT_ID=...`
+4. Test: `python -m bot.telegram --test`. Then start the bot as usual; Telegram runs inside it.
 
 ## Costs used per market (edit in `config.yaml`)
 

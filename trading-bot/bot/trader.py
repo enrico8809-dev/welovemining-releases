@@ -293,14 +293,22 @@ def print_status(cfg: dict, store: StateStore) -> None:
               f" ({t['reason']}){pnl}")
 
 
-def run(cfg: dict, store: StateStore, once: bool = False, notify=lambda t: None) -> None:
+def run(cfg: dict, store: StateStore, once: bool = False, notify=None) -> None:
+    from bot.telegram import Commands, Telegram, daily_summary
     live = is_live_trading()
     tc = cfg["trader"]
-    log.info("=== Auto-Trader starting in %s mode | markets: %s | strategy: %s ===",
-             "LIVE" if live else "PAPER", ", ".join(tc["markets"]), tc["strategy"])
+    tg = Telegram.from_env() if notify is None else None
+    if notify is None:
+        notify = tg.send if tg else (lambda text: None)
+    mode = "LIVE" if live else "PAPER"
+    log.info("=== Auto-Trader starting in %s mode | markets: %s | strategy: %s | Telegram: %s ===",
+             mode, ", ".join(tc["markets"]), tc["strategy"], "on" if tg else "off")
     if live:
         log.warning("LIVE TRADING: real orders will be placed.")
     traders = build_traders(cfg, store, live, notify)
+    if tg and not once:
+        tg.start_polling(Commands(cfg, store, traders).handle)
+        notify(f"🤖 Bot started ({mode}): {', '.join(tc['markets'])}. Send /help for commands.")
     for t in traders:
         try:
             t.reconcile()
@@ -318,7 +326,15 @@ def run(cfg: dict, store: StateStore, once: bool = False, notify=lambda t: None)
                 t.step()
             except Exception as e:                       # never crash the whole bot
                 log.exception("[%s] loop error: %s", t.market, e)
-                notify(f"Error in {t.market}: {e}")
+                notify(f"⚠️ Error in {t.market}: {e}")
+        # Once a day (first loop after midnight UTC): send yesterday's P&L summary
+        today = datetime.now(timezone.utc).date()
+        last = store.get("last_summary_day")
+        if last != today.isoformat():
+            if last:
+                from datetime import date
+                notify(daily_summary(store, tc["markets"], date.fromisoformat(last)))
+            store.set("last_summary_day", today.isoformat())
         if once:
             break
         for _ in range(int(tc.get("loop_seconds", 300))):   # sleep in 1 s steps so Ctrl+C/kill work fast
@@ -326,6 +342,10 @@ def run(cfg: dict, store: StateStore, once: bool = False, notify=lambda t: None)
                 break
             time.sleep(1)
     log.info("Auto-Trader stopped.")
+    if not once:
+        notify("🛑 Bot stopped.")
+    if tg:
+        tg.stop()
 
 
 def main():
