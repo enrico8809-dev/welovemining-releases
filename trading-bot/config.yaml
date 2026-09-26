@@ -91,6 +91,21 @@ scanner:
   max_spread_pct: 0.1          # bid/ask gap at most 0.1% of the price
   top_n: 20                    # keep the 20 pairs with the highest volume
 
+# Optimizer (backtest/optimize.py): walk-forward tuning. Small grids on purpose: the more
+# combinations you try, the easier it is to find one that only worked by luck.
+optimizer:
+  train_days: 730              # tune on 2 years ...
+  test_days: 180               # ... then test on the next 6 months (never seen), slide, repeat
+  objective: sharpe            # sharpe or calmar (risk-adjusted, not raw profit)
+  min_trades: 3                # a setting needs at least this many trades in a train window
+  min_efficiency: 0.5          # test score must be >= 50% of the train score, else REJECT
+  grids:
+    sma_cross: { fast: [5, 10, 20], slow: [30, 40, 60, 100] }
+    rsi_dip:   { buy_below: [25, 30, 35], sell_above: [50, 60], trend_period: [100, 200] }
+    grid:      { lookback: [20, 30, 60], levels: [3, 5, 8], stop_pct: [3, 5, 10] }
+    dca:       { step_pct: [3, 5, 8], max_safety: [2, 3], take_profit_pct: [4, 6, 10] }
+    regime:    { adx_trend: [15, 20, 25], ma_period: [50, 100, 200] }
+
 data:
   cache_dir: data/cache
 

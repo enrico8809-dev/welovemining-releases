@@ -20,7 +20,8 @@ Give API keys **Read + Spot trading** permission only. Never enable withdrawals.
 | 3 | Market Regime Detector + regime-switching strategy | ✅ done |
 | 4 | Risk Manager (sizing, stops, hard limits, halts) | ✅ done |
 | 5 | Coin Scanner (liquid USDT pairs) | ✅ done |
-| 6–9 | Optimizer, auto-trader, Telegram, dashboard | ⏳ |
+| 6 | Walk-forward Optimizer | ✅ done |
+| 7–9 | auto-trader, Telegram, dashboard | ⏳ |
 
 ## Setup (Windows, one time)
 
@@ -148,6 +149,31 @@ python -m backtest.run --scanned --strategy regime --risk   (backtest all scanne
 
 Careful with backtests of scanned coins: today's top coins are the ones that **survived and grew**,
 so their past looks better than a random coin's would have (survivorship bias).
+
+## Optimizer (Phase 6)
+
+`backtest/optimize.py` tunes a strategy with **walk-forward testing** (settings in the
+`optimizer:` section of `config.yaml`):
+
+1. Try every setting in a small grid on **2 years** of history ("train").
+2. Test the best one on the **next 6 months**, which it has never seen ("test").
+3. Slide forward 6 months and repeat until today. Only the test results count.
+4. The score is **risk-adjusted** (Sharpe or Calmar), averaged over all symbols.
+
+The tuned settings are **rejected** (keep the defaults) if on unseen data they:
+score 0 or less, keep less than 50% of their training score, lose in more than half of the
+windows, or do no better than the default settings.
+
+```bat
+python -m backtest.optimize --strategy sma_cross
+python -m backtest.optimize --strategy regime --risk
+python -m backtest.optimize --market stocks --strategy sma_cross --objective calmar
+```
+
+Results so far (crypto, 7 windows, 2023–2026): **every strategy was rejected**. Tuning did not
+beat the default settings on unseen data, e.g. `sma_cross` tuned 0.37 vs defaults 0.54 Sharpe.
+That means the defaults are not curve-fitted, and chasing "better" settings would only have
+fitted the past.
 
 ## Costs used per market (edit in `config.yaml`)
 

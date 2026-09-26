@@ -24,8 +24,10 @@ from strategies.indicators import atr as atr_indicator
 
 def run_backtest_with_risk(candles: pd.DataFrame, strategy: Strategy, settings: BacktestSettings,
                            risk_config: RiskConfig, start: str | None = None,
-                           end: str | None = None) -> BacktestResult:
-    target = strategy.target_exposure(candles).reindex(candles.index).fillna(0)
+                           end: str | None = None, target: pd.Series | None = None) -> BacktestResult:
+    if target is None:
+        target = strategy.target_exposure(candles)
+    target = target.reindex(candles.index).fillna(0)
     want_in = (target.shift(1).fillna(0) > 0)                  # decided at the previous close
     prev_atr = atr_indicator(candles, risk_config.atr_period).shift(1)
 

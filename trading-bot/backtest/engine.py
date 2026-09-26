@@ -77,12 +77,16 @@ class BacktestResult:
 
 
 def run_backtest(candles: pd.DataFrame, strategy: Strategy, settings: BacktestSettings,
-                 start: str | None = None, end: str | None = None) -> BacktestResult:
+                 start: str | None = None, end: str | None = None,
+                 target: pd.Series | None = None) -> BacktestResult:
     """Run one strategy on one coin. start/end (YYYY-MM-DD, inclusive) limit the trading window;
-    candles before 'start' are still used to warm up the indicators."""
+    candles before 'start' are still used to warm up the indicators.
+    `target` = the strategy's exposure if already computed (the optimizer reuses it)."""
     # Strategy decides using the whole history, then we shift by 1 candle:
     # the decision made at candle i's close is executed at candle i+1's open.
-    target = strategy.target_exposure(candles).reindex(candles.index)
+    if target is None:
+        target = strategy.target_exposure(candles)
+    target = target.reindex(candles.index)
     target = target.fillna(0).clip(0, 1)          # spot only: never short, never leverage
     wanted = target.shift(1).fillna(0)
 
