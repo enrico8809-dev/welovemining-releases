@@ -34,6 +34,7 @@ markets:
     symbols: [EURUSD, GBPUSD, USDJPY, AUDUSD, USDCHF, USDCAD, USDZAR, XAUUSD]
     account_currency: USD     # your MT5 account currency
     strategy: regime          # may go long AND short (shorts only in a downtrend)
+    allow_short: true         # false = long only (in backtests long-only did a little better)
     commission_per_lot: 0     # per lot per side in USD (ECN/raw-spread accounts: ~3.5)
     yahoo_symbols: { XAUUSD: "GC=F" }   # Yahoo names for the fallback data (default: EURUSD=X)
     # Used only without MT5 history: typical spreads (points) and swaps (points per lot per night,

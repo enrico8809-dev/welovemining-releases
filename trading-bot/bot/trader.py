@@ -22,6 +22,8 @@ FOREX_LIVE_TRADING=true, long and short, every order with its stop-loss at the b
 import argparse
 import math
 import signal
+import socket
+import threading
 import time
 from datetime import datetime, timezone
 
@@ -275,7 +277,7 @@ def build_forex_trader(cfg: dict, store: StateStore, notify=lambda t: None):
         return None
     name = mcfg.get("strategy", cfg["trader"]["strategy"])
     risk = RiskManager(RiskConfig.from_config(cfg, market="forex"), store, market="forex")
-    return ForexTrader(broker, risk, store, name, strategy_params(cfg, name, allow_short=True),
+    return ForexTrader(broker, risk, store, name, strategy_params(cfg, name, mcfg.get("allow_short", True)),
                        mcfg["symbols"], cfg.get("forex_hours", {}), notify)
 
 
@@ -348,71 +350,112 @@ def print_status(cfg: dict, store: StateStore) -> None:
               f" ({t['reason']}){pnl}")
 
 
-def run(cfg: dict, store: StateStore, once: bool = False, notify=None) -> None:
-    from bot.telegram import Commands, Telegram, daily_summary
+TRADING_LOCK_PORT = 8799    # only one copy of the bot may trade at a time (start_bot.bat OR the app)
+
+
+def acquire_trading_lock():
+    """A local port works as a lock on every OS and is released automatically if the bot dies."""
+    lock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        lock.bind(("127.0.0.1", TRADING_LOCK_PORT))
+    except OSError:
+        lock.close()
+        return None
+    return lock
+
+
+def make_notify():
+    """Alerts go to every channel you set up (Telegram and/or WhatsApp)."""
+    from bot.telegram import Telegram
+    from bot.whatsapp import WhatsApp
+    tg, wa = Telegram.from_env(), WhatsApp.from_env()
+    channels = [c.send for c in (tg, wa) if c]
+
+    def notify(text):
+        for send in channels:
+            send(text)
+    return notify, tg, wa
+
+
+def run(cfg: dict, store: StateStore, once: bool = False, notify=None,
+        stop_event: threading.Event | None = None, status: dict | None = None) -> None:
+    """The main loop. stop_event: set it to stop after the current loop (the app's Stop button).
+    status: a dict the app reads (last loop time, open errors)."""
+    from bot.telegram import Commands, daily_summary
+    lock = acquire_trading_lock()
+    if lock is None:
+        log.error("Another copy of the bot is already trading (start_bot.bat or the WLM Trader app). "
+                  "Close it first.")
+        if status is not None:
+            status["error"] = "another copy of the bot is already trading"
+        return
+    stop_event = stop_event or threading.Event()
+    status = status if status is not None else {}
     live = is_live_trading()
     tc = cfg["trader"]
-    from bot.whatsapp import WhatsApp
-    tg = Telegram.from_env() if notify is None else None
-    wa = WhatsApp.from_env() if notify is None else None
+    tg = wa = None
     if notify is None:
-        channels = [c.send for c in (tg, wa) if c]       # alerts go to every channel you set up
-
-        def notify(text):
-            for send in channels:
-                send(text)
+        notify, tg, wa = make_notify()
     mode = "LIVE" if live else "PAPER"
     log.info("=== Auto-Trader starting | crypto/stocks: %s | markets: %s | strategy: %s | Telegram: %s | "
              "WhatsApp: %s ===", mode, ", ".join(tc["markets"]), tc["strategy"], "on" if tg else "off",
              "on" if wa else "off")
     if live:
         log.warning("LIVE TRADING: real orders will be placed.")
-    traders = build_traders(cfg, store, live, notify)
-    if tg and not once:
-        tg.start_polling(Commands(cfg, store, traders).handle)
-        notify(f"🤖 Bot started ({mode}): {', '.join(tc['markets'])}. Send /help for commands.")
-    for t in traders:
-        try:
-            t.reconcile()
-        except Exception as e:
-            log.error("[%s] reconcile failed: %s", t.market, e)
-
-    stop = {"now": False}
-    signal.signal(signal.SIGINT, lambda *_: stop.update(now=True))   # Ctrl+C = stop after this loop
-    while not stop["now"]:
-        if store.get(STOP_FLAG):
-            log.warning("Stop requested (kill switch). Closing Forex positions and exiting.")
-            for t in traders:
-                try:
-                    t.on_kill()
-                except Exception as e:
-                    log.error("[%s] kill switch failed: %s", t.market, e)
-            break
+    try:
+        traders = build_traders(cfg, store, live, notify)
+        if tg and not once:
+            tg.start_polling(Commands(cfg, store, traders).handle)
+        if not once:
+            notify(f"🤖 Bot started ({mode}): {', '.join(t.market for t in traders)}.")
         for t in traders:
             try:
-                t.step()
-            except Exception as e:                       # never crash the whole bot
-                log.exception("[%s] loop error: %s", t.market, e)
-                notify(f"⚠️ Error in {t.market}: {e}")
-        # Once a day (first loop after midnight UTC): send yesterday's P&L summary
-        today = datetime.now(timezone.utc).date()
-        last = store.get("last_summary_day")
-        if last != today.isoformat():
-            if last:
-                from datetime import date
-                notify(daily_summary(store, tc["markets"], date.fromisoformat(last)))
-            store.set("last_summary_day", today.isoformat())
-        if once:
-            break
-        for _ in range(int(tc.get("loop_seconds", 300))):   # sleep in 1 s steps so Ctrl+C/kill work fast
-            if stop["now"] or store.get(STOP_FLAG):
+                t.reconcile()
+            except Exception as e:
+                log.error("[%s] reconcile failed: %s", t.market, e)
+
+        if threading.current_thread() is threading.main_thread():
+            signal.signal(signal.SIGINT, lambda *_: stop_event.set())   # Ctrl+C = stop after this loop
+        while not stop_event.is_set():
+            if store.get(STOP_FLAG):
+                log.warning("Stop requested (kill switch). Closing Forex positions and exiting.")
+                for t in traders:
+                    try:
+                        t.on_kill()
+                    except Exception as e:
+                        log.error("[%s] kill switch failed: %s", t.market, e)
                 break
-            time.sleep(1)
-    log.info("Auto-Trader stopped.")
-    if not once:
-        notify("🛑 Bot stopped.")
-    if tg:
-        tg.stop()
+            for t in traders:
+                try:
+                    t.step()
+                    status.pop(f"error:{t.market}", None)
+                except Exception as e:                       # never crash the whole bot
+                    log.exception("[%s] loop error: %s", t.market, e)
+                    status[f"error:{t.market}"] = str(e)
+                    notify(f"⚠️ Error in {t.market}: {e}")
+            status["last_loop"] = now_iso()
+            # Once a day (first loop after midnight UTC): send yesterday's P&L summary
+            today = datetime.now(timezone.utc).date()
+            last = store.get("last_summary_day")
+            if last != today.isoformat():
+                if last:
+                    from datetime import date
+                    notify(daily_summary(store, tc["markets"], date.fromisoformat(last)))
+                store.set("last_summary_day", today.isoformat())
+            if once:
+                break
+            # sleep in 1 s steps so Stop / Ctrl+C / the kill switch work fast
+            for _ in range(int(tc.get("loop_seconds", 300))):
+                if stop_event.is_set() or store.get(STOP_FLAG):
+                    break
+                time.sleep(1)
+    finally:
+        lock.close()
+        log.info("Auto-Trader stopped.")
+        if not once:
+            notify("🛑 Bot stopped.")
+        if tg:
+            tg.stop()
 
 
 def main():

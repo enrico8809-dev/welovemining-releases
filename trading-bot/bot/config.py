@@ -1,4 +1,9 @@
-"""Loads settings from config.yaml and secrets from .env."""
+"""Loads settings from config.yaml and secrets from .env.
+
+Settings changed in the WLM Trader app are saved to data/app_settings.json and applied on
+top of config.yaml (so config.yaml and its comments are never rewritten).
+"""
+import json
 import os
 from pathlib import Path
 
@@ -9,12 +14,53 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def load_config(path: Path | str | None = None) -> dict:
-    """Read config.yaml into a dict. Also loads .env into environment variables."""
+APP_SETTINGS = ROOT / "data" / "app_settings.json"
+
+
+def load_config(path: Path | str | None = None, overrides: bool = True) -> dict:
+    """Read config.yaml into a dict, plus the app's saved changes. Also loads .env."""
     load_dotenv(ROOT / ".env")
     path = Path(path) if path else ROOT / "config.yaml"
     with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        cfg = yaml.safe_load(f)
+    if overrides and path == ROOT / "config.yaml":
+        cfg = deep_merge(cfg, load_overrides())
+    return cfg
+
+
+def load_overrides() -> dict:
+    try:
+        return json.loads(APP_SETTINGS.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def save_overrides(values: dict) -> None:
+    APP_SETTINGS.parent.mkdir(parents=True, exist_ok=True)
+    APP_SETTINGS.write_text(json.dumps(values, indent=2), encoding="utf-8")
+
+
+def deep_merge(base: dict, extra: dict) -> dict:
+    """Copy of `base` with `extra` merged in (nested dicts merged, everything else replaced)."""
+    out = dict(base)
+    for key, value in extra.items():
+        out[key] = deep_merge(out[key], value) if isinstance(value, dict) and isinstance(out.get(key), dict) else value
+    return out
+
+
+def update_env(values: dict[str, str]) -> None:
+    """Set keys in .env (keeping every other line) and in this process's environment."""
+    path = ROOT / ".env"
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    remaining = dict(values)
+    for i, line in enumerate(lines):
+        key = line.split("=", 1)[0].strip()
+        if not line.lstrip().startswith("#") and key in remaining:
+            lines[i] = f"{key}={remaining.pop(key)}"
+    lines += [f"{k}={v}" for k, v in remaining.items()]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    for k, v in values.items():
+        os.environ[k] = str(v)
 
 
 def env_bool(name: str, default: bool = False) -> bool:
