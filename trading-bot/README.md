@@ -82,6 +82,7 @@ sideways** periods). With `--strategy all` you get one comparison table. Saved t
 | `rsi_dip` | Buy oversold dips (RSI<30) only in an uptrend (above 200-day SMA) | uptrends | `buy_below=30 sell_above=55 trend_period=200 stop_loss_pct=8` |
 | `grid` | Buy lower / sell higher in steps inside the recent price range; sell all if it breaks down | sideways | `lookback=30 levels=5 stop_pct=5` |
 | `regime` | Picks a strategy per market regime; cash in downtrends (see below) | all | `up=sma_cross sideways=sma_cross` |
+| `breakout` | Buy a break above the 20-candle high, exit below the 10-candle low (Forex: also short) | trends | `entry=20 exit=10` |
 | `dca` | Base order + max 3 safety orders on dips, take profit, hard stop | mild dips in uptrends | `step_pct=5 max_safety=3 take_profit_pct=6 stop_loss_pct=15` |
 
 Each strategy uses at most 2 indicators (less overfitting).
@@ -268,6 +269,23 @@ Backtest 2012-2026 on daily candles (Yahoo prices with *estimated* spreads/swaps
 At 1:1 these strategies earn very little on Forex over 14 years, and shorting helped on some pairs
 and hurt on others. Re-run with your broker's real data (`python -m data.forex_data`) before
 judging, and demo trade first.
+
+### Day-trading mode (quick trades)
+
+Set `markets.forex.mode: day` (or switch it in the app). The bot then:
+- trades **hourly candles** (`forex_day: timeframe`, also 15m/5m with MT5 data) during the London +
+  New York session (07:00-20:00 UTC), checking every minute;
+- makes at most `max_trades_per_day` (6) new trades per day;
+- **closes everything an hour before the 17:00 New York rollover**: no overnight swap, nothing over
+  the weekend;
+- still risks ~1% per trade at a broker stop-loss, with total exposure up to **3:1** (tight stops
+  need bigger positions; swing mode stays 1:1).
+
+Backtest: `python -m backtest.run --market forex --timeframe 1h --strategy sma_cross`.
+Two years of hourly data (Yahoo, estimated spreads), average over the 8 symbols:
+`sma_cross` +3%, `rsi_dip` 0%, `regime` 0%, `breakout` -3%; ~1 trade per day per symbol, and
+AUDUSD, USDCAD and USDZAR hit the 20% drawdown halt with most strategies. **No quick-trade strategy
+has shown a reliable edge yet** - most day traders lose money to spreads. Demo trade it first.
 
 ## WhatsApp alerts
 

@@ -57,11 +57,13 @@ class RiskConfig:
         """Build from the `risk:` section of config.yaml (+ `forex_risk:` for Forex)
         plus MAX_ORDER_USDT from .env (crypto and stocks)."""
         values = dict(cfg.get("risk") or {})
-        if market == "forex":
+        if market in ("forex", "forex_day"):
             values.update(cfg.get("forex_risk") or {})
+        if market == "forex_day":                      # day-trading mode: its own stops and cap
+            values.update(cfg.get("forex_day") or {})
         values = {k: v for k, v in values.items() if k in cls.__dataclass_fields__}
         max_order = os.getenv("MAX_ORDER_USDT")
-        if max_order and market != "forex":
+        if max_order and not market.startswith("forex"):
             values["max_order_value"] = float(max_order)
         return cls(fee_pct=fee_pct, **values)
 

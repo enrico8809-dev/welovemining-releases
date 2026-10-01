@@ -16,6 +16,10 @@ Costs
     3-night charge on the broker's triple-swap day (Wednesday) and none on weekends
 
 Every trade must have a stop-loss and the exposure is capped (default 1:1), exactly like live.
+
+Day-trading mode (`day=` settings, intraday candles): new trades only inside the trading
+session, at most N per day, and everything is closed shortly before the daily 17:00 New York
+rollover - so no overnight swap and nothing is held over the weekend.
 """
 import math
 from dataclasses import dataclass
@@ -24,6 +28,7 @@ import numpy as np
 import pandas as pd
 
 from backtest.engine import BacktestResult, Trade, select_window
+from bot.forex_hours import day_entry_block, must_be_flat, trading_day
 from bot.risk import RiskConfig, RiskManager
 from bot.rules import LotRules
 from strategies.base import Strategy
@@ -49,7 +54,9 @@ def swap_nights(day: pd.Timestamp, triple_day_mt5: int) -> int:
 
 def run_forex_backtest(candles: pd.DataFrame, strategy: Strategy, lot_rules: LotRules,
                        settings: ForexSettings, risk_config: RiskConfig, start: str | None = None,
-                       end: str | None = None, target: pd.Series | None = None) -> BacktestResult:
+                       end: str | None = None, target: pd.Series | None = None,
+                       day: dict | None = None) -> BacktestResult:
+    """day: day-trading settings (forex_day in config.yaml) or None for swing trading."""
     if target is None:
         target = strategy.target_exposure(candles)
     direction = np.sign(target.reindex(candles.index).fillna(0)).shift(1).fillna(0)   # previous close
@@ -73,6 +80,7 @@ def run_forex_backtest(candles: pd.DataFrame, strategy: Strategy, lot_rules: Lot
     wait_side = 0                    # after a stop-loss: don't re-enter this side until the signal changes
     trades, orders, equity, notes = [], [], [], []
     skipped, last_block = 0, ""
+    entries_per_day: dict[str, int] = {}
 
     def close(time, price, reason):
         nonlocal balance, pos
@@ -105,10 +113,16 @@ def run_forex_backtest(candles: pd.DataFrame, strategy: Strategy, lot_rules: Lot
         if want != wait_side:
             wait_side = 0
 
-        # 1) At the open: close on a changed signal, or open a new position (Risk Manager sizes it)
+        # 1) At the open: close on a changed signal (or end of day), or open a new position
+        if pos is not None and day is not None and must_be_flat(now, day):
+            close(time, o if pos["side"] > 0 else o + sp, "end_of_day")
         if pos is not None and want != pos["side"]:
             close(time, o if pos["side"] > 0 else o + sp, "signal")
-        if pos is None and want != 0 and want != wait_side:
+        may_enter = True
+        if day is not None:
+            may_enter = not day_entry_block(now, day) and \
+                entries_per_day.get(trading_day(now), 0) < day.get("max_trades_per_day", 6)
+        if pos is None and want != 0 and want != wait_side and may_enter:
             side = "buy" if want > 0 else "sell"
             entry = o + sp if want > 0 else o
             a = a_prev if not math.isnan(a_prev) else 0
@@ -120,6 +134,7 @@ def run_forex_backtest(candles: pd.DataFrame, strategy: Strategy, lot_rules: Lot
                 trade.returned = trade.invested - commission
                 pos = dict(side=want, lots=decision.amount, entry=entry, stop=decision.stop_price,
                            best=entry, trade=trade)
+                entries_per_day[trading_day(now)] = entries_per_day.get(trading_day(now), 0) + 1
                 orders.append(dict(time=time, side=side, price=entry, amount=decision.amount,
                                    fee=commission, reason="signal"))
             else:
@@ -140,7 +155,7 @@ def run_forex_backtest(candles: pd.DataFrame, strategy: Strategy, lot_rules: Lot
 
         # 3) At the close: overnight swap, then move the trailing stop for the next candle
         if pos is not None:
-            nights = swap_nights(time, lot_rules.swap_triple_day)
+            nights = swap_nights(time, lot_rules.swap_triple_day) if day is None else 0   # day mode: flat
             if nights:
                 rate = lot_rules.swap_long if pos["side"] > 0 else lot_rules.swap_short
                 swap = rate * lot_rules.point * contract * pos["lots"] * conv(c) * nights

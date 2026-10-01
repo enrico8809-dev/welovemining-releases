@@ -147,8 +147,9 @@ def backtest_symbol(cfg: dict, market_name: str, symbol: str, timeframe: str,
 
 
 def backtest_forex_symbol(cfg: dict, symbol: str, timeframe: str, strategy_name: str, params: dict,
-                          show: bool = True) -> dict:
-    """Forex: long + short, lots sized by the Risk Manager, spread/commission/swap included."""
+                          show: bool = True, day_mode: bool | None = None) -> dict:
+    """Forex: long + short, lots sized by the Risk Manager, spread/commission/swap included.
+    Intraday timeframes run in day-trading mode (forex_day in config.yaml)."""
     from data.forex_data import load_forex_candles, load_lot_rules
     from strategies import supports_short
     market = cfg["markets"]["forex"]
@@ -158,10 +159,14 @@ def backtest_forex_symbol(cfg: dict, symbol: str, timeframe: str, strategy_name:
     settings = ForexSettings(initial_capital=cfg["backtest"].get("forex_capital", 10_000),
                              account_currency=market.get("account_currency", "USD"),
                              commission_per_lot=market.get("commission_per_lot", 0))
-    risk_config = RiskConfig.from_config(cfg, market="forex")
+    day_mode = timeframe != "1d" if day_mode is None else day_mode
+    day = cfg.get("forex_day", {}) if day_mode else None
+    risk_config = RiskConfig.from_config(cfg, market="forex_day" if day_mode else "forex")
     params = {**config_params(cfg, strategy_name), **params}
+    if day_mode and strategy_name == day.get("strategy"):
+        params = {**day.get("params", {}), **params}
     if supports_short(strategy_name):
-        params.setdefault("allow_short", True)
+        params.setdefault("allow_short", market.get("allow_short", True))
 
     periods = {"full": (None, None)}
     periods.update({name: (p["start"], p["end"]) for name, p in market.get("periods", {}).items()})
@@ -169,7 +174,7 @@ def backtest_forex_symbol(cfg: dict, symbol: str, timeframe: str, strategy_name:
     for name, (start, end) in periods.items():
         try:
             result = run_forex_backtest(candles, load_strategy(strategy_name, **params), lot_rules,
-                                        settings, risk_config, start, end)
+                                        settings, risk_config, start, end, day=day)
         except ValueError as e:
             warnings.append(f"[{name}] skipped: {e}")
             continue
@@ -184,7 +189,8 @@ def backtest_forex_symbol(cfg: dict, symbol: str, timeframe: str, strategy_name:
         rows = ROWS[:-1] + [("shorts", "Short entries", "{:d}"), ("skipped_orders", "Skipped (too small)", "{:d}")]
         table = pd.DataFrame({col: {label: fmt(s.get(key), f) for key, label, f in rows}
                               for col, s in columns.items()})
-        print(f"\n=== FOREX {symbol} {timeframe} | {load_strategy(strategy_name, **params)} + RISK MANAGER | "
+        print(f"\n=== FOREX {'DAY TRADING ' if day_mode else ''}{symbol} {timeframe} | "
+              f"{load_strategy(strategy_name, **params)} + RISK MANAGER | "
               f"data: {data_source}, specs: {spec_source} | max {risk_config.max_leverage:g}:1, "
               f"commission {settings.commission_per_lot:g}/lot, swap {lot_rules.swap_long:g}/{lot_rules.swap_short:g} pts ===")
         print(table.to_string())

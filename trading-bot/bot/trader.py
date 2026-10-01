@@ -54,6 +54,7 @@ class MarketTrader:
         self.symbols_fn = symbols_fn       # returns the symbols to watch right now
         self.mode = mode                   # "paper" or "live"
         self.notify = notify               # Telegram alerts (Phase 8); no-op by default
+        self.interval = 300                # seconds between loops (set from config by build_traders)
         self._signals = {}                 # symbol -> (UTC day, wants in?, candles)
 
     # ------------------------------------------------------------------ helpers
@@ -244,8 +245,10 @@ def build_traders(cfg: dict, store: StateStore, live: bool, notify=lambda t: Non
             data, store, tc.get("paper_capital", {}).get(market, 1000),
             mcfg["fee_pct"], mcfg["slippage_pct"], mcfg.get("min_fee", 0))
         risk = RiskManager(RiskConfig.from_config(cfg, mcfg["fee_pct"]), store, market=market)
-        traders.append(MarketTrader(market, broker, risk, store, tc["strategy"], strategy_params(cfg, tc["strategy"]),
-                                    symbols_for(market, cfg, data), mode, notify))
+        trader = MarketTrader(market, broker, risk, store, tc["strategy"], strategy_params(cfg, tc["strategy"]),
+                              symbols_for(market, cfg, data), mode, notify)
+        trader.interval = int(tc.get("loop_seconds", 300))
+        traders.append(trader)
     return traders
 
 
@@ -275,10 +278,21 @@ def build_forex_trader(cfg: dict, store: StateStore, notify=lambda t: None):
         log.error("[forex] MetaTrader 5 not available, Forex is skipped: %s", e)
         notify(f"⚠️ Forex skipped: {e}")
         return None
+    shorts = mcfg.get("allow_short", True)
+    if mcfg.get("mode", "swing") == "day":               # quick intraday trades, flat every evening
+        day = cfg.get("forex_day", {})
+        name = day.get("strategy", "sma_cross")
+        params = {**strategy_params(cfg, name, shorts), **day.get("params", {})}
+        risk = RiskManager(RiskConfig.from_config(cfg, market="forex_day"), store, market="forex")
+        log.info("[forex] DAY-TRADING mode: %s on %s candles, max %s trades/day", name, day.get("timeframe", "1h"),
+                 day.get("max_trades_per_day", 6))
+        return ForexTrader(broker, risk, store, name, params, mcfg["symbols"], cfg.get("forex_hours", {}), notify,
+                           timeframe=day.get("timeframe", "1h"), day_cfg=day, interval=day.get("loop_seconds", 60))
     name = mcfg.get("strategy", cfg["trader"]["strategy"])
     risk = RiskManager(RiskConfig.from_config(cfg, market="forex"), store, market="forex")
-    return ForexTrader(broker, risk, store, name, strategy_params(cfg, name, mcfg.get("allow_short", True)),
-                       mcfg["symbols"], cfg.get("forex_hours", {}), notify)
+    return ForexTrader(broker, risk, store, name, strategy_params(cfg, name, shorts),
+                       mcfg["symbols"], cfg.get("forex_hours", {}), notify,
+                       interval=cfg["trader"].get("loop_seconds", 300))
 
 
 def symbols_for(market: str, cfg: dict, data: Broker):
@@ -404,6 +418,10 @@ def run(cfg: dict, store: StateStore, once: bool = False, notify=None,
         log.warning("LIVE TRADING: real orders will be placed.")
     try:
         traders = build_traders(cfg, store, live, notify)
+        if not traders:
+            log.error("No market could start (check config.yaml trader.markets and the logs above).")
+            status["error"] = "no market could start"
+            return
         if tg and not once:
             tg.start_polling(Commands(cfg, store, traders).handle)
         if not once:
@@ -414,6 +432,8 @@ def run(cfg: dict, store: StateStore, once: bool = False, notify=None,
             except Exception as e:
                 log.error("[%s] reconcile failed: %s", t.market, e)
 
+        default_interval = int(tc.get("loop_seconds", 300))
+        next_step: dict[str, float] = {}                     # market -> when it runs next
         if threading.current_thread() is threading.main_thread():
             signal.signal(signal.SIGINT, lambda *_: stop_event.set())   # Ctrl+C = stop after this loop
         while not stop_event.is_set():
@@ -426,6 +446,9 @@ def run(cfg: dict, store: StateStore, once: bool = False, notify=None,
                         log.error("[%s] kill switch failed: %s", t.market, e)
                 break
             for t in traders:
+                if time.monotonic() < next_step.get(t.market, 0):
+                    continue                                 # not this trader's turn yet
+                next_step[t.market] = time.monotonic() + getattr(t, "interval", default_interval)
                 try:
                     t.step()
                     status.pop(f"error:{t.market}", None)
@@ -444,8 +467,8 @@ def run(cfg: dict, store: StateStore, once: bool = False, notify=None,
                 store.set("last_summary_day", today.isoformat())
             if once:
                 break
-            # sleep in 1 s steps so Stop / Ctrl+C / the kill switch work fast
-            for _ in range(int(tc.get("loop_seconds", 300))):
+            # sleep in 1 s steps until the next trader is due, so Stop / Ctrl+C / kill work fast
+            while time.monotonic() < min(next_step.values(), default=0):
                 if stop_event.is_set() or store.get(STOP_FLAG):
                     break
                 time.sleep(1)

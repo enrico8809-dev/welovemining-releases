@@ -154,3 +154,32 @@ def test_crypto_backtest_still_never_shorts():
     result = run_backtest(downtrend(), s, BacktestSettings())
     assert all(o["side"] in ("buy", "sell") for o in result.orders)
     assert result.equity.min() > 0 and pd.Series(result.equity).iloc[-1] <= 1000
+
+
+# ---------------------------------------------------------------- day-trading mode
+def test_day_mode_session_rollover_and_trading_day():
+    from bot.forex_hours import day_entry_block, minutes_to_rollover, must_be_flat, trading_day
+    t = lambda s: datetime.fromisoformat(s).replace(tzinfo=timezone.utc)
+    day = {"session_start_utc": 7, "session_end_utc": 20, "flat_minutes_before_rollover": 60}
+    assert day_entry_block(t("2026-10-07 10:00"), day) == ""
+    assert "session" in day_entry_block(t("2026-10-07 05:00"), day)
+    assert minutes_to_rollover(t("2026-10-07 20:30")) == 30          # 16:30 New York (summer)
+    assert must_be_flat(t("2026-10-07 20:30"), day) and not must_be_flat(t("2026-10-07 18:00"), day)
+    assert trading_day(t("2026-10-07 21:30")) == "2026-10-08"         # after 17:00 NY = next trading day
+    assert "weekend" in day_entry_block(t("2026-10-10 10:00"), day)
+
+
+def test_forex_day_risk_section(monkeypatch):
+    cfg = {"risk": {"stop_atr_mult": 2}, "forex_risk": {"max_leverage": 1},
+           "forex_day": {"max_leverage": 3, "stop_atr_mult": 1.5}}
+    day = RiskConfig.from_config(cfg, market="forex_day")
+    assert day.max_leverage == 3 and day.stop_atr_mult == 1.5
+    assert RiskConfig.from_config(cfg, market="forex").max_leverage == 1
+
+
+def test_breakout_long_and_short():
+    up = make_candles(np.concatenate([np.full(30, 1.1), np.linspace(1.1, 1.2, 30)]), spread=0.0001)
+    assert load_strategy("breakout").target_exposure(up).iloc[-1] == 1
+    down = make_candles(np.concatenate([np.full(30, 1.1), np.linspace(1.1, 1.0, 30)]), spread=0.0001)
+    assert load_strategy("breakout").target_exposure(down).iloc[-1] == 0
+    assert load_strategy("breakout", allow_short=True).target_exposure(down).iloc[-1] == -1

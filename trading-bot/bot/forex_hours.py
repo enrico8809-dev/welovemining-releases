@@ -64,3 +64,36 @@ def entry_block_reason(now: datetime, cfg: dict | None = None) -> str:
         if abs(now - when) <= pause:
             return f"news pause: {name}"
     return ""
+
+
+# ---------------------------------------------------------------------------- day-trading mode
+def minutes_to_rollover(now: datetime) -> float:
+    """Minutes until the next daily rollover (17:00 New York), when swap is charged."""
+    ny = now.astimezone(NEW_YORK)
+    rollover = datetime.combine(ny.date(), OPEN_CLOSE, tzinfo=NEW_YORK)
+    if ny >= rollover:
+        rollover += timedelta(days=1)
+    return (rollover - ny).total_seconds() / 60
+
+
+def trading_day(now: datetime) -> str:
+    """The Forex trading day (it starts at 17:00 New York), e.g. '2026-10-07'."""
+    return (now.astimezone(NEW_YORK) + timedelta(hours=7)).date().isoformat()
+
+
+def must_be_flat(now: datetime, day_cfg: dict) -> bool:
+    """Day mode: close everything shortly before the rollover (no swap, nothing over the weekend)."""
+    return minutes_to_rollover(now) <= day_cfg.get("flat_minutes_before_rollover", 60)
+
+
+def day_entry_block(now: datetime, day_cfg: dict) -> str:
+    """Day mode: why a NEW quick trade isn't allowed right now ('' = allowed)."""
+    start, end = day_cfg.get("session_start_utc", 7), day_cfg.get("session_end_utc", 20)
+    utc = now.astimezone(timezone.utc)
+    if utc.weekday() >= 5:
+        return "weekend"
+    if not start <= utc.hour < end:
+        return f"outside the trading session ({start:02d}:00-{end:02d}:00 UTC)"
+    if must_be_flat(now, day_cfg):
+        return "too close to the daily rollover"
+    return ""

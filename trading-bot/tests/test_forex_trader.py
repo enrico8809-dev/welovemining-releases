@@ -137,3 +137,19 @@ def test_reconcile_books_closed_and_adopts_unknown(fx):
     assert store.trades(1)[0]["reason"] == "stop_loss"
     adopted = store.positions("forex")[0]
     assert adopted.symbol == "USDJPY" and adopted.qty == -0.05 and adopted.stop == 152.0
+
+
+def test_day_mode_closes_everything_before_the_rollover(fx, monkeypatch):
+    trader, store, mt5, messages = fx
+    trader.day_cfg = {"session_start_utc": 0, "session_end_utc": 24, "flat_minutes_before_rollover": 60,
+                      "max_trades_per_day": 1}
+    import bot.forex_trader as module
+    monkeypatch.setattr(module, "day_entry_block", lambda now, cfg: "")
+    trader.step()
+    assert mt5.positions and trader.trades_today() == 1
+    monkeypatch.setattr(module, "must_be_flat", lambda now, cfg: True)
+    trader.step()
+    assert not mt5.positions and store.trades(1)[0]["reason"] == "end_of_day"
+    monkeypatch.setattr(module, "must_be_flat", lambda now, cfg: False)
+    trader.step()                                          # max 1 trade today: no new entry
+    assert not mt5.positions

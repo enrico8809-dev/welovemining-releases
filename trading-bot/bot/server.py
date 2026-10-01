@@ -150,6 +150,15 @@ EDITABLE = {
     "markets.forex.symbols": _symbols,
     "markets.forex.strategy": _strategy,
     "markets.forex.allow_short": _bool,
+    "markets.forex.mode": lambda v: v if v in ("swing", "day") else (_ for _ in ()).throw(ValueError("swing or day")),
+    "forex_day.strategy": _strategy,
+    "forex_day.timeframe": lambda v: v if v in ("5m", "15m", "30m", "1h") else (_ for _ in ()).throw(
+        ValueError("5m, 15m, 30m or 1h")),
+    "forex_day.max_leverage": _num(0.1, 3),          # day mode: up to 3:1 (your choice)
+    "forex_day.max_trades_per_day": _num(1, 50, int),
+    "forex_day.risk_per_trade_pct": _num(0.1, 3),
+    "forex_day.session_start_utc": _num(0, 23, int),
+    "forex_day.session_end_utc": _num(1, 24, int),
     "markets.stocks.symbols": _symbols,
     "markets.crypto.symbols": _symbols,
     "forex_hours.news_events": _news,

@@ -106,3 +106,34 @@ def test_crosses_cannot_be_backtested_in_usd():
 def test_too_small_account_skips_instead_of_rounding_up():
     result = run(np.linspace(1.0, 1.2, 100), 1, settings=ForexSettings(initial_capital=500))
     assert not result.trades and result.skipped_orders > 0
+
+
+def test_day_mode_closes_before_rollover_and_charges_no_swap():
+    # Hourly candles over 3 days, always long
+    idx = pd.date_range("2026-10-06 00:00", periods=72, freq="1h", tz="UTC")
+    candles = pd.DataFrame({"open": 1.1, "high": 1.1015, "low": 1.0985, "close": 1.1, "volume": 1,
+                            "spread": 10}, index=idx)
+    day = {"session_start_utc": 7, "session_end_utc": 20, "flat_minutes_before_rollover": 60,
+           "max_trades_per_day": 6}
+    result = run_forex_backtest(candles, Fixed(1), rules(swap_long=-50), ForexSettings(),
+                                RiskConfig(max_lots=10, max_leverage=3), day=day)
+    exits = [o for o in result.orders if o["reason"] == "end_of_day"]
+    assert exits and all(o["time"].hour == 20 for o in exits)          # 16:00 New York
+    entries = [o for o in result.orders if o["reason"] == "signal"]
+    assert all(7 <= o["time"].hour < 20 for o in entries)
+    # no swap: every trade's loss is just spread (no -50 point nightly charges)
+    assert all(t.pnl > -20 for t in result.trades)
+
+
+def test_day_mode_max_trades_per_day():
+    from collections import Counter
+    from bot.forex_hours import trading_day
+    idx = pd.date_range("2026-10-06 00:00", periods=60, freq="1h", tz="UTC")
+    candles = pd.DataFrame({"open": 1.1, "high": 1.1015, "low": 1.0985, "close": 1.1, "volume": 1,
+                            "spread": 10}, index=idx)
+    day = {"session_start_utc": 0, "session_end_utc": 24, "max_trades_per_day": 2}
+    result = run_forex_backtest(candles, Fixed([1, 0] * 30), rules(), ForexSettings(),
+                                RiskConfig(max_lots=10, max_leverage=3), day=day)
+    per_day = Counter(trading_day(o["time"].to_pydatetime()) for o in result.orders
+                      if o["reason"] == "signal" and o["side"] == "buy")
+    assert per_day and max(per_day.values()) == 2

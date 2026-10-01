@@ -6,11 +6,16 @@ Every loop:
   3. Account value -> daily loss / drawdown limits (same Risk Manager as crypto).
   4. New entries only while the market is open (bot/forex_hours.py) and the Risk Manager agrees:
      size from the stop distance, total exposure capped at 1:1, stop-loss sent with the order.
+
+Two modes (markets.forex.mode in config.yaml):
+  swing  daily candles, positions held for days or weeks (1:1)
+  day    quick trades on intraday candles during the London/New York sessions, at most
+         max_trades_per_day, everything closed before the 17:00 New York rollover (up to 3:1)
 """
 import math
 from datetime import datetime, timedelta, timezone
 
-from bot.forex_hours import entry_block_reason
+from bot.forex_hours import day_entry_block, entry_block_reason, must_be_flat, trading_day
 from bot.logger import get_logger
 from bot.risk import RiskManager
 from bot.storage import Position, StateStore, now_iso
@@ -26,12 +31,15 @@ class ForexTrader:
 
     def __init__(self, broker, risk: RiskManager, store: StateStore, strategy_name: str,
                  strategy_params: dict, symbols: list[str], hours_cfg: dict | None = None,
-                 notify=lambda text: None):
+                 notify=lambda text: None, timeframe: str = "1d", day_cfg: dict | None = None,
+                 interval: int = 300):
         self.broker, self.risk, self.store = broker, risk, store
         self.strategy_name, self.strategy_params = strategy_name, strategy_params
         self.symbols, self.hours_cfg, self.notify = symbols, hours_cfg or {}, notify
         self.mode = broker.mode                 # "demo" or "live"
-        self._signals = {}                      # symbol -> (hour, direction, candles)
+        self.timeframe, self.day_cfg = timeframe, day_cfg    # day_cfg set = day-trading mode
+        self.interval = interval                # seconds between loops
+        self._signals = {}                      # symbol -> (candle period, direction, candles)
         self._last_block = ""
 
     def _now(self) -> datetime:
@@ -39,18 +47,19 @@ class ForexTrader:
 
     # ------------------------------------------------------------------ signals
     def signal(self, symbol: str):
-        """(direction, candles): +1 long, -1 short, 0 flat, from the last CLOSED daily candle.
-        Re-checked once an hour (the daily candle closes at 17:00 New York time)."""
-        hour = self._now().replace(minute=0, second=0, microsecond=0)
+        """(direction, candles): +1 long, -1 short, 0 flat, from the last CLOSED candle.
+        Re-checked when a new candle may have closed (daily candles: once an hour)."""
+        seconds = {"5m": 300, "15m": 900, "30m": 1800}.get(self.timeframe, 3600)
+        period = int(self._now().timestamp() // seconds)
         cached = self._signals.get(symbol)
-        if cached and cached[0] == hour:
+        if cached and cached[0] == period:
             return cached[1], cached[2]
-        candles = self.broker.get_candles(symbol)
+        candles = self.broker.get_candles(symbol, self.timeframe)
         direction = 0
         if len(candles) >= 50:
             value = load_strategy(self.strategy_name, **self.strategy_params).target_exposure(candles).iloc[-1]
             direction = 1 if value > 0 else -1 if value < 0 else 0
-        self._signals[symbol] = (hour, direction, candles)
+        self._signals[symbol] = (period, direction, candles)
         return direction, candles
 
     def _atr(self, candles) -> float:
@@ -69,10 +78,13 @@ class ForexTrader:
     # ------------------------------------------------------------------ one loop
     def step(self) -> None:
         held = self.broker.get_positions()
+        end_of_day = self.day_cfg is not None and must_be_flat(self._now(), self.day_cfg)
         for pos in self.store.positions(self.market):
             try:
                 if pos.symbol not in held:
                     self.closed_by_broker(pos)
+                elif end_of_day:
+                    self.exit(pos, "end_of_day")          # day mode: nothing held past the rollover
                 else:
                     self.manage_position(pos)
             except Exception as e:
@@ -88,6 +100,10 @@ class ForexTrader:
         if self.store.get(PAUSE_FLAG) or self.store.get(STOP_FLAG):
             return
         block = entry_block_reason(now, self.hours_cfg)
+        if not block and self.day_cfg is not None:
+            block = day_entry_block(now, self.day_cfg)
+            if not block and self.trades_today() >= self.day_cfg.get("max_trades_per_day", 6):
+                block = f"max {self.day_cfg.get('max_trades_per_day', 6)} trades today reached"
         if block:
             if block != self._last_block:
                 log.info("[forex] no new trades: %s", block)
@@ -106,6 +122,9 @@ class ForexTrader:
                     exposure = self.exposure()
             except Exception as e:
                 log.exception("[forex] error checking %s: %s", symbol, e)
+
+    def trades_today(self) -> int:
+        return self.store.get(f"day_trades:{trading_day(self._now())}", 0)
 
     def snapshot(self, equity: float) -> None:
         """What the app, Telegram and the dashboard show for this account."""
@@ -158,6 +177,8 @@ class ForexTrader:
                                           fill.price, now_iso(), self.strategy_name))
         self.store.set(f"mt5_ticket:{symbol}", self.broker.position_ticket(symbol))
         self.store.record_trade(self.market, symbol, side, fill.qty, fill.price, fill.fee, "signal", None, self.mode)
+        if self.day_cfg is not None:
+            self.store.set(f"day_trades:{trading_day(self._now())}", self.trades_today() + 1)
         msg = (f"{'BUY' if side == 'buy' else 'SELL (short)'} {symbol} [forex, {self.mode}]: {fill.qty:g} lots @ "
                f"{fill.price:.6g}, stop {decision.stop_price:.6g}")
         log.info(msg)

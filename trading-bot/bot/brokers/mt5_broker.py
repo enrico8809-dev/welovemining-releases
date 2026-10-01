@@ -24,7 +24,8 @@ from bot.rules import LotRules
 
 log = get_logger("mt5")
 
-TIMEFRAMES = {"1h": "TIMEFRAME_H1", "4h": "TIMEFRAME_H4", "1d": "TIMEFRAME_D1"}
+TIMEFRAMES = {"5m": "TIMEFRAME_M5", "15m": "TIMEFRAME_M15", "30m": "TIMEFRAME_M30",
+              "1h": "TIMEFRAME_H1", "4h": "TIMEFRAME_H4", "1d": "TIMEFRAME_D1"}
 OK_CODES = (10008, 10009, 10010)       # TRADE_RETCODE_PLACED, _DONE, _DONE_PARTIAL
 DEAL_REASON_SL = 4                     # the deal was the broker's stop-loss
 
