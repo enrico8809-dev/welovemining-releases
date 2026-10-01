@@ -3,12 +3,12 @@
 Alerts: every trade, errors, and a daily P&L summary.
 Commands (only from YOUR chat, everyone else is ignored):
     /status     mode, halts, pause state, open positions
-    /balance    cash and account value per market
+    /balance    account value per market (crypto, stocks, Forex) and combined
     /positions  open positions with entry, stop and current P&L
     /trades     the last 10 trades
     /pause      stop opening new trades (stops keep protecting open positions)
     /resume     allow new trades again
-    /stop       KILL SWITCH: cancel open orders, block new trades, stop the bot
+    /stop       KILL SWITCH: cancel orders, close Forex positions, block new trades, stop the bot
     /help       this list
 
 Setup (one time):
@@ -118,8 +118,9 @@ class Commands:
             return "▶️ Resumed: new trades allowed (if the Risk Manager agrees)."
         if command == "/stop":
             from bot.trader import kill_switch
-            kill_switch(self.cfg, self.store)
-            return ("🛑 KILL SWITCH: open orders cancelled, new trades blocked, bot stopping.\n"
+            # Inside the running bot, its main loop closes the positions; standalone, do it here
+            kill_switch(self.cfg, self.store, close_now=not self.traders)
+            return ("🛑 KILL SWITCH: orders cancelled, Forex positions closing, new trades blocked, bot stopping.\n"
                     "To restart: python -m bot.risk --reset, python -m bot.trader --clear-stop, then start_bot.bat")
         if command in handlers:
             try:
@@ -146,26 +147,26 @@ class Commands:
         return fallback
 
     def status(self) -> str:
-        from bot.config import is_live_trading
+        from bot.accounts import account_rows
         from bot.trader import PAUSE_FLAG, STOP_FLAG
-        lines = [f"🤖 Mode: {'LIVE' if is_live_trading() else 'PAPER'}"
-                 f"{' | ⏸ PAUSED' if self.store.get(PAUSE_FLAG) else ''}"
-                 f"{' | 🛑 STOPPED' if self.store.get(STOP_FLAG) else ''}"]
-        now = datetime.now(timezone.utc)
-        for m in self._markets():
-            blocked = self._risk(m).blocked_reason(now)
-            lines.append(f"• {m}: {len(self.store.positions(m))} positions, new buys "
-                         f"{'BLOCKED (' + blocked + ')' if blocked else 'allowed'}")
+        lines = [f"🤖 Bot{' | ⏸ PAUSED' if self.store.get(PAUSE_FLAG) else ''}"
+                 f"{' | 🛑 STOPPED' if self.store.get(STOP_FLAG) else ' | running'}"]
+        for r in account_rows(self.cfg, self.store):
+            lines.append(f"• {r['market']} ({r['mode'].upper()}): {r['positions']} positions, new trades "
+                         f"{'BLOCKED (' + r['blocked'] + ')' if r['blocked'] else 'allowed'}")
         return "\n".join(lines)
 
     def balance(self) -> str:
+        from bot.accounts import account_rows, combined
+        rows = account_rows(self.cfg, self.store)
         lines = ["💰 Balance"]
-        for m in self._markets():
-            hist = self.store.equity_history(m)
-            equity = f"{hist[-1][2]:.2f}" if hist else "n/a"
-            paper = self.store.get(f"paper:{m}")
-            cash = f"{paper['cash']:.2f}" if paper else "see exchange"
-            lines.append(f"• {m}: value {equity} | cash {cash}")
+        for r in rows:
+            value = f"{r['equity']:,.2f} {r['currency']}" if r["equity"] is not None else "n/a"
+            cash = f"{r['cash']:,.2f}" if r["cash"] is not None else "n/a"
+            change = f" ({r['change_pct']:+.2f}%)" if r["change_pct"] is not None else ""
+            lines.append(f"• {r['market']} [{r['mode']}]: {value}{change} | cash {cash}")
+        total = combined(rows)
+        lines.append(f"Σ Combined: {total['equity']:,.2f} USD")
         return "\n".join(lines)
 
     def positions(self) -> str:
@@ -173,8 +174,9 @@ class Commands:
         for m in self._markets():
             for p in self.store.positions(m):
                 price = self._price(m, p.symbol, p.entry_price)
-                pnl_pct = 100 * (price / p.entry_price - 1)
-                lines.append(f"• [{m}] {p.symbol}: {p.qty:.6g} @ {p.entry_price:.6g} → {price:.6g} "
+                pnl_pct = 100 * (price / p.entry_price - 1) * (1 if p.qty > 0 else -1)
+                side = "SHORT " if p.qty < 0 else ""
+                lines.append(f"• [{m}] {side}{p.symbol}: {abs(p.qty):.6g} @ {p.entry_price:.6g} → {price:.6g} "
                              f"({pnl_pct:+.1f}%), stop {p.stop:.6g}")
         return "📊 Positions\n" + ("\n".join(lines) if lines else "none")
 

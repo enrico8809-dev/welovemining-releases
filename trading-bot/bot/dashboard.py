@@ -14,7 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from bot.config import is_live_trading, load_config
 from bot.logger import get_logger
-from bot.risk import RiskConfig, RiskManager
+from bot.accounts import account_rows, combined
 from bot.storage import StateStore
 
 log = get_logger("dashboard")
@@ -23,26 +23,13 @@ log = get_logger("dashboard")
 def summary(cfg: dict, store: StateStore) -> dict:
     """Everything the page shows, as one JSON-friendly dict."""
     from bot.trader import PAUSE_FLAG, STOP_FLAG
-    markets = cfg["trader"]["markets"]
     now = datetime.now(timezone.utc)
 
     equity = defaultdict(list)
     for time, market, value in store.equity_history():
         equity[market].append([time, round(value, 2)])
 
-    market_rows = []
-    for m in markets:
-        paper = store.get(f"paper:{m}")
-        hist = equity.get(m, [])
-        first, last = (hist[0][1], hist[-1][1]) if hist else (None, None)
-        market_rows.append({
-            "market": m,
-            "equity": last,
-            "change_pct": round(100 * (last / first - 1), 2) if first else None,
-            "cash": round(paper["cash"], 2) if paper else None,
-            "blocked": RiskManager(RiskConfig.from_config(cfg), store, market=m).blocked_reason(now),
-            "positions": len(store.positions(m)),
-        })
+    market_rows = account_rows(cfg, store)
 
     trades = store.trades(200)
     perf = defaultdict(lambda: {"trades": 0, "wins": 0, "pnl": 0.0})
@@ -65,6 +52,7 @@ def summary(cfg: dict, store: StateStore) -> dict:
         "strategy": cfg["trader"]["strategy"],
         "updated": now.isoformat(timespec="seconds"),
         "markets": market_rows,
+        "combined": combined(market_rows),
         "equity": equity,
         "positions": [p.__dict__ for p in store.positions()],
         "trades": trades[:50],
@@ -124,13 +112,14 @@ async function load(){
  const mode=document.getElementById('mode');mode.textContent=d.mode+' · '+d.strategy;mode.className='pill '+d.mode.toLowerCase();
  document.getElementById('flags').innerHTML=(d.paused?'<span class="pill warn">PAUSED</span> ':'')+(d.stopped?'<span class="pill warn">STOPPED (kill switch)</span>':'');
  document.getElementById('updated').textContent='updated '+d.updated.replace('T',' ').slice(0,16)+' UTC';
- document.getElementById('markets').innerHTML=d.markets.map(m=>`<div class="card"><h2>${esc(m.market)}</h2>
-  <div class="big">${f(m.equity)}</div><div class="${cls(m.change_pct)}">${m.change_pct==null?'':(m.change_pct>=0?'+':'')+f(m.change_pct)+'% since start'}</div>
+ document.getElementById('markets').innerHTML=`<div class="card"><h2>Combined (USD)</h2><div class="big">${f(d.combined.equity)}</div>
+  <div class="muted">${esc(d.combined.markets.join(' + '))}</div></div>`+d.markets.map(m=>`<div class="card"><h2>${esc(m.market)} · ${esc(m.mode)}</h2>
+  <div class="big">${f(m.equity)} <span class="muted">${esc(m.currency)}</span></div><div class="${cls(m.change_pct)}">${m.change_pct==null?'':(m.change_pct>=0?'+':'')+f(m.change_pct)+'% since start'}</div>
   <div class="muted">cash ${f(m.cash)} · ${m.positions} open</div>
   <div class="${m.blocked?'down':'up'}">${m.blocked?'new buys blocked: '+esc(m.blocked):'new buys allowed'}</div></div>`).join('');
  document.getElementById('charts').innerHTML=d.markets.map(m=>`<div><b>${esc(m.market)}</b>${chart(d.equity[m.market]||[])}</div>`).join('');
- table('positions',[['Market'],['Symbol'],['Qty','num'],['Entry','num'],['Stop','num'],['Highest','num'],['Opened']],
-  d.positions.map(p=>`<tr><td>${esc(p.market)}</td><td>${esc(p.symbol)}</td><td class="num">${f(p.qty,6)}</td><td class="num">${f(p.entry_price,4)}</td>
+ table('positions',[['Market'],['Symbol'],['Side'],['Qty','num'],['Entry','num'],['Stop','num'],['Highest','num'],['Opened']],
+  d.positions.map(p=>`<tr><td>${esc(p.market)}</td><td>${esc(p.symbol)}</td><td>${p.qty<0?'short':'long'}</td><td class="num">${f(Math.abs(p.qty),6)}</td><td class="num">${f(p.entry_price,4)}</td>
   <td class="num">${f(p.stop,4)}</td><td class="num">${f(p.highest,4)}</td><td>${esc(p.opened_at.replace("T"," ").slice(0,16))}</td></tr>`));
  table('perf',[['Market · exit reason'],['Trades','num'],['Win rate','num'],['P&L','num']],
   d.performance.map(p=>`<tr><td>${esc(p.name)}</td><td class="num">${p.trades}</td><td class="num">${f(p.win_rate,1)}%</td><td class="num ${cls(p.pnl)}">${f(p.pnl)}</td></tr>`));

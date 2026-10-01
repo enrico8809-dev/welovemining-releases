@@ -230,6 +230,11 @@ class Mt5Broker(Broker):
         positions = self._my_positions(symbol)
         return positions[0].ticket if positions else None
 
+    def position_info(self, symbol: str):
+        """The bot's open MT5 position on this symbol (ticket, price_open, sl, volume...) or None."""
+        positions = self._my_positions(symbol)
+        return positions[0] if positions else None
+
     def modify_stop(self, symbol: str, stop: float) -> bool:
         """Move the stop-loss at the broker (trailing stop)."""
         positions = self._my_positions(symbol)

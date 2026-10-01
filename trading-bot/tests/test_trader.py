@@ -167,14 +167,6 @@ def test_reconcile_fixes_positions_after_a_restart(setup):
     assert positions["AAA/USDT"].qty == 1.5
 
 
-def test_forex_only_buys_pairs_quoted_in_usd(setup):
-    trader, *_ = setup
-    trader.market = "forex"
-    assert trader.tradeable("EURUSD=X")
-    assert not trader.tradeable("USDJPY=X")            # would need yen we don't have (no borrowing)
-    assert not trader.tradeable("USDZAR=X")
-
-
 def test_positions_survive_a_restart(tmp_path):
     db = tmp_path / "bot.db"
     store = StateStore(db)
