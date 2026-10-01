@@ -69,22 +69,25 @@ class Engine:
         self.thread.start()
         return "started"
 
-    def stop(self, wait: float = 30) -> str:
+    def stop(self, wait: float = 3) -> str:
+        """Ask the loop to stop. It finishes the symbol it's checking first, so this can take
+        a moment; the app shows 'Stopping...' meanwhile."""
         if not self.running:
             return "not running"
         self.stop_event.set()
         self.thread.join(wait)
-        return "stopped" if not self.running else "stopping"
+        return "stopped" if not self.running else "stopping: finishing the current check"
 
     def restart(self) -> str:
         if self.running:
-            self.stop()
+            self.stop(wait=120)
             return self.start()
         return "not running"
 
     def info(self) -> dict:
         errors = {k.split(":", 1)[1]: v for k, v in self.status.items() if k.startswith("error:")}
-        return {"running": self.running, "started_at": self.started_at if self.running else "",
+        return {"running": self.running, "stopping": self.running and self.stop_event.is_set(),
+                "started_at": self.started_at if self.running else "",
                 "last_loop": self.status.get("last_loop", ""), "error": self.status.get("error", ""),
                 "market_errors": errors}
 
@@ -273,6 +276,20 @@ def job_command(kind: str, args: dict, cfg: dict) -> list[str]:
     return cmd
 
 
+def backtest_table(args: dict) -> dict | None:
+    """The summary CSV that backtest.run saved, as {columns, rows} for the app."""
+    import csv
+    market = args.get("market", "crypto")
+    name = f"{market}_{args.get('timeframe') or '1d'}_{args.get('strategy') or 'sma_cross'}" \
+           f"{'_risk' if args.get('risk') else ''}.csv"
+    path = ROOT / "backtest" / "results" / name
+    if not path.exists():
+        return None
+    with open(path, newline="", encoding="utf-8") as f:
+        rows = list(csv.reader(f))
+    return {"columns": rows[0], "rows": rows[1:]} if rows else None
+
+
 class Jobs:
     """Research tasks (backtests, downloads, scans) run one at a time as separate processes."""
 
@@ -297,6 +314,8 @@ class Jobs:
                     if len(job["output"]) < 300_000:
                         job["output"] += line
                 job["status"] = "done" if proc.wait() == 0 else "failed"
+                if kind == "backtest" and job["status"] == "done":
+                    job["table"] = backtest_table(args)
             except Exception as e:
                 job["output"] += f"\n{e}"
                 job["status"] = "failed"
@@ -391,9 +410,11 @@ def control(action: str, cfg: dict, store: StateStore, engine: Engine) -> str:
         return "resumed"
     if action == "kill":
         # A running engine closes its own Forex positions; otherwise do it from here
-        kill_switch(cfg, store, close_now=not engine.running)
-        engine.stop(wait=60)
-        return "kill switch: orders cancelled, Forex positions closed, bot stopped"
+        running = engine.running
+        kill_switch(cfg, store, close_now=not running)
+        if running:                                # the loop closes its Forex positions, then stops
+            return "kill switch: new trades blocked; the bot is closing Forex positions and stopping"
+        return "kill switch: orders cancelled, Forex positions closed, new trades blocked"
     if action == "clear_kill":
         store.set(STOP_FLAG, False)
         for market in cfg["trader"]["markets"]:
@@ -418,7 +439,36 @@ def ensure_token() -> str:
     return token
 
 
+class Pairing:
+    """Phone pairing: the PC shows a 6-digit code (valid 10 minutes, 5 tries); the phone trades
+    it for the app token once. Typing a short code beats copying a long secret onto a phone."""
+
+    def __init__(self, token: str):
+        self.token, self.code, self.expires, self.attempts = token, "", 0.0, 0
+        self.lock = threading.Lock()
+
+    def start(self) -> dict:
+        with self.lock:
+            self.code = f"{secrets.randbelow(1_000_000):06d}"
+            self.expires, self.attempts = time.time() + 600, 0
+            return {"code": self.code, "expires_in": 600}
+
+    def redeem(self, code: str) -> str | None:
+        with self.lock:
+            if not self.code or time.time() > self.expires:
+                return None
+            if secrets.compare_digest(str(code).strip(), self.code):
+                self.code = ""                              # single use
+                return self.token
+            self.attempts += 1
+            if self.attempts >= 5:
+                self.code = ""                              # too many wrong tries: start again on the PC
+            return None
+
+
 def make_handler(store: StateStore, engine: Engine, jobs: Jobs, token: str):
+    pairing = Pairing(token)
+
     class Handler(BaseHTTPRequestHandler):
         server_version = "WLMTrader"
 
@@ -427,12 +477,15 @@ def make_handler(store: StateStore, engine: Engine, jobs: Jobs, token: str):
 
         def _send(self, code: int, payload) -> None:
             body = json.dumps(payload, default=str).encode()
-            self.send_response(code)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Cache-Control", "no-store")
-            self._cors()
-            self.end_headers()
-            self.wfile.write(body)
+            try:
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Cache-Control", "no-store")
+                self._cors()
+                self.end_headers()
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                pass                                  # the app went away mid-answer: nothing to do
 
         def _cors(self):
             # Auth is a header token (never a cookie), so allowing any origin is safe
@@ -466,6 +519,16 @@ def make_handler(store: StateStore, engine: Engine, jobs: Jobs, token: str):
                 if "?" in self.path else {}
             if path == "/api/health":
                 return self._send(200, {"ok": True, "app": "wlm-trader", "version": VERSION})
+            if method == "POST" and path == "/api/pair":
+                time.sleep(0.5)                       # slow down guessing
+                try:
+                    found = pairing.redeem(self._body().get("code", ""))
+                except (ValueError, json.JSONDecodeError):
+                    found = None
+                if not found:
+                    return self._send(403, {"error": "wrong or expired code: make a new one on the PC"})
+                log.warning("A new device was paired with the app")
+                return self._send(200, {"token": found})
             if not self._authorized():
                 time.sleep(0.5)                       # slow down token guessing
                 return self._send(401, {"error": "wrong or missing token"})
@@ -484,6 +547,10 @@ def make_handler(store: StateStore, engine: Engine, jobs: Jobs, token: str):
                 if method == "POST" and path == "/api/control":
                     action = self._body().get("action", "")
                     return self._send(200, {"ok": True, "message": control(action, cfg, store, engine)})
+                if method == "POST" and path == "/api/pair/start":
+                    if not self._local():
+                        return self._send(403, {"error": "pairing codes are made on the PC itself"})
+                    return self._send(200, pairing.start())
                 if method == "GET" and path == "/api/settings":
                     return self._send(200, {**settings_view(cfg), "local": self._local()})
                 if method == "PUT" and path == "/api/settings":

@@ -55,6 +55,7 @@ class MarketTrader:
         self.mode = mode                   # "paper" or "live"
         self.notify = notify               # Telegram alerts (Phase 8); no-op by default
         self.interval = 300                # seconds between loops (set from config by build_traders)
+        self.stop_event = threading.Event()  # set by the app's Stop button: finish quickly
         self._signals = {}                 # symbol -> (UTC day, wants in?, candles)
 
     # ------------------------------------------------------------------ helpers
@@ -83,6 +84,8 @@ class MarketTrader:
         prices = {}
         # 1) Manage open positions first (selling is always allowed, even when halted)
         for pos in self.store.positions(self.market):
+            if self.stop_event.is_set():
+                return                            # stopping: the next start manages them again
             try:
                 self.manage_position(pos, prices)
             except Exception as e:
@@ -101,6 +104,8 @@ class MarketTrader:
         if len(held) >= self.risk.config.max_open_trades:
             return                                # no room for another trade: nothing to check
         for symbol in self.symbols_fn():
+            if self.stop_event.is_set():
+                return                            # Stop pressed: don't check the remaining symbols
             if len(self.store.positions(self.market)) >= self.risk.config.max_open_trades:
                 break                             # full: no need to check the rest
             if symbol in held:
@@ -418,6 +423,8 @@ def run(cfg: dict, store: StateStore, once: bool = False, notify=None,
         log.warning("LIVE TRADING: real orders will be placed.")
     try:
         traders = build_traders(cfg, store, live, notify)
+        for t in traders:
+            t.stop_event = stop_event
         if not traders:
             log.error("No market could start (check config.yaml trader.markets and the logs above).")
             status["error"] = "no market could start"

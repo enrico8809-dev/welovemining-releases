@@ -13,6 +13,7 @@ Two modes (markets.forex.mode in config.yaml):
          max_trades_per_day, everything closed before the 17:00 New York rollover (up to 3:1)
 """
 import math
+import threading
 from datetime import datetime, timedelta, timezone
 
 from bot.forex_hours import day_entry_block, entry_block_reason, must_be_flat, trading_day
@@ -40,6 +41,7 @@ class ForexTrader:
         self.timeframe, self.day_cfg = timeframe, day_cfg    # day_cfg set = day-trading mode
         self.interval = interval                # seconds between loops
         self._signals = {}                      # symbol -> (candle period, direction, candles)
+        self.stop_event = threading.Event()     # set by the app's Stop button
         self._last_block = ""
 
     def _now(self) -> datetime:
@@ -115,6 +117,8 @@ class ForexTrader:
             return
         exposure = self.exposure()
         for symbol in self.symbols:
+            if self.stop_event.is_set():
+                return
             if any(p.symbol == symbol for p in self.store.positions(self.market)):
                 continue
             try:

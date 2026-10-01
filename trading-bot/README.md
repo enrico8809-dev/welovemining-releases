@@ -31,6 +31,7 @@ permission only. Never enable withdrawals.
 | 8 | Telegram alerts and commands | ✅ done |
 | 9 | Local web dashboard | ✅ done |
 | + | Forex via MetaTrader 5 (long + short, lots, broker stops), WhatsApp alerts | ✅ done |
+| + | Forex day-trading mode; WLM Trader app for Windows + Android | ✅ done |
 
 ## Setup (Windows, one time)
 
@@ -315,6 +316,17 @@ Setup (one time):
    `"chat":{"id":`.
 3. In `.env`: `TELEGRAM_BOT_TOKEN=...` and `TELEGRAM_CHAT_ID=...`
 4. Test: `python -m bot.telegram --test`. Then start the bot as usual; Telegram runs inside it.
+
+## WLM Trader app (Windows + Android)
+
+The easiest way to run and control the bot: **`wlm-trader-app/`** (see its README). The Windows
+app starts the bot for you, and every setting, key, backtest and control (start, pause, stop, kill
+switch) is in the app; the Android app shows the same screens on your phone through Tailscale.
+
+Behind it is `bot/server.py` (`python -m bot.server`): a JSON API on `127.0.0.1:8765` protected by
+`APP_TOKEN` in `.env` (created automatically). Settings changed in the app are saved to
+`data/app_settings.json` (on top of `config.yaml`). Keys and passwords can only be changed from the
+PC itself. Only one copy of the bot may trade at a time (app or `start_bot.bat`).
 
 ## Dashboard (Phase 9)
 

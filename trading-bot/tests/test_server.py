@@ -138,3 +138,23 @@ def test_job_commands_are_whitelisted():
             server.job_command("backtest", bad, cfg)
     with pytest.raises(ValueError):
         server.job_command("shell", {}, cfg)
+
+
+def test_phone_pairing_with_a_short_code(api):
+    call, *_ = api
+    assert call("POST", "/api/pair/start", {}, headers={"X-Forwarded-For": "100.64.0.2"})[0] == 403
+    code = call("POST", "/api/pair/start", {})[1]["code"]
+    assert len(code) == 6
+    assert call("POST", "/api/pair", {"code": "000000" if code != "000000" else "111111"}, token="")[0] == 403
+    status, data = call("POST", "/api/pair", {"code": code}, token="")
+    assert status == 200 and data["token"] == TOKEN
+    assert call("POST", "/api/pair", {"code": code}, token="")[0] == 403          # single use
+
+
+def test_pairing_code_dies_after_five_wrong_tries(api):
+    call, *_ = api
+    code = call("POST", "/api/pair/start", {})[1]["code"]
+    wrong = "123456" if code != "123456" else "654321"
+    for _ in range(5):
+        call("POST", "/api/pair", {"code": wrong}, token="")
+    assert call("POST", "/api/pair", {"code": code}, token="")[0] == 403
