@@ -27,6 +27,7 @@ import threading
 import time
 from datetime import datetime, timezone
 
+from bot.activity import record
 from bot.brokers.base import Broker
 from bot.brokers.ccxt_broker import CcxtBroker
 from bot.brokers.ibkr_broker import IbkrBroker, YahooData
@@ -93,6 +94,8 @@ class MarketTrader:
 
         # 2) Update equity -> daily loss / drawdown limits
         eq = self.equity(prices)
+        record(self.store, self.market, "loop", f"Checked prices: {len(prices)} open position(s), "
+               f"account value {eq:,.2f} {self.broker.quote}")
         self.risk.update_equity(eq, self._now())
         self.store.record_equity(self.market, eq)
         self.snapshot(eq)
@@ -128,6 +131,8 @@ class MarketTrader:
             strategy = load_strategy(self.strategy_name, **self.strategy_params)
             want_in = bool(strategy.target_exposure(candles).iloc[-1] > 0)
         self._signals[symbol] = (today, want_in, candles)
+        record(self.store, self.market, "signal", f"{symbol}: strategy {'wants IN' if want_in else 'says OUT'}"
+               + ("" if len(candles) >= 50 else " (not enough history yet)"), symbol)
         return want_in, candles
 
     def manage_position(self, pos: Position, prices: dict) -> None:
@@ -140,7 +145,10 @@ class MarketTrader:
         if price > pos.highest:
             pos.highest = price
         if current_atr > 0:
-            pos.stop = self.risk.trailing_stop(pos.stop, pos.highest, current_atr)
+            new_stop = self.risk.trailing_stop(pos.stop, pos.highest, current_atr)
+            if new_stop > pos.stop:
+                record(self.store, self.market, "stop", f"{pos.symbol}: trailing stop moved up to {new_stop:.6g}", pos.symbol)
+                pos.stop = new_stop
         self.store.save_position(pos)
 
         if price <= pos.stop:
@@ -167,6 +175,7 @@ class MarketTrader:
                                        rules=self.broker.rules(symbol), now=self._now())
         if not decision.approved:
             log.info("[%s] %s: buy not approved (%s)", self.market, symbol, decision.reason)
+            record(self.store, self.market, "skip", f"{symbol}: buy not approved ({decision.reason})", symbol)
             return
         fill = self.broker.place_order(symbol, "buy", decision, price)
         if not fill:
@@ -180,6 +189,7 @@ class MarketTrader:
         msg = (f"BUY {symbol} [{self.market}, {self.mode}]: {fill.qty:.8g} @ {fill.price:.8g} "
                f"(value {fill.qty * fill.price:.2f} {self.broker.quote}, stop {stop:.8g})")
         log.info(msg)
+        record(self.store, self.market, "order", msg, symbol)
         self.notify(msg)
 
     def exit(self, pos: Position, price: float, reason: str) -> None:
@@ -199,6 +209,7 @@ class MarketTrader:
         msg = (f"SELL {pos.symbol} [{self.market}, {self.mode}] ({reason}): {fill.qty:.8g} @ "
                f"{fill.price:.8g}, P&L {pnl:+.2f} {self.broker.quote}")
         log.info(msg)
+        record(self.store, self.market, "order", msg, pos.symbol)
         self.notify(msg)
 
     # ------------------------------------------------------------------ startup
@@ -423,6 +434,7 @@ def run(cfg: dict, store: StateStore, once: bool = False, notify=None,
         log.warning("LIVE TRADING: real orders will be placed.")
     try:
         traders = build_traders(cfg, store, live, notify)
+        status["traders"] = traders                          # the app's live view reads prices through them
         for t in traders:
             t.stop_event = stop_event
         if not traders:

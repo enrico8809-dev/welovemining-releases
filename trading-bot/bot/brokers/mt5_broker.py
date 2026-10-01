@@ -11,7 +11,9 @@ Safety
   * Only positions with the bot's magic number are touched; your manual trades are left alone.
   * A failed order is never re-sent blindly: we first look for the position it may have opened.
 """
+import functools
 import os
+import threading
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -23,6 +25,17 @@ from bot.logger import get_logger
 from bot.rules import LotRules
 
 log = get_logger("mt5")
+# The MetaTrader5 package is not thread-safe: the trading loop and the app's live price feed
+# share one terminal connection, so every call goes through this lock.
+MT5_LOCK = threading.RLock()
+
+
+def locked(method):
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with MT5_LOCK:
+            return method(self, *args, **kwargs)
+    return wrapper
 
 TIMEFRAMES = {"5m": "TIMEFRAME_M5", "15m": "TIMEFRAME_M15", "30m": "TIMEFRAME_M30",
               "1h": "TIMEFRAME_H1", "4h": "TIMEFRAME_H4", "1d": "TIMEFRAME_D1"}
@@ -91,12 +104,14 @@ class Mt5Broker(Broker):
         return name
 
     # ------------------------------------------------------------------ market data
+    @locked
     def get_candles(self, symbol, timeframe="1d", limit=400):
         tf = getattr(self.mt5, TIMEFRAMES[timeframe])
         # start_pos=1 skips the candle that is still forming: closed candles only
         rates = self._read(self.mt5.copy_rates_from_pos, self._sym(symbol), tf, 1, limit)
         return rates_to_frame(rates)
 
+    @locked
     def quote_tick(self, symbol):
         """(bid, ask, time of the last tick in UTC)."""
         tick = self._read(self.mt5.symbol_info_tick, self._sym(symbol))
@@ -105,12 +120,14 @@ class Mt5Broker(Broker):
     def get_price(self, symbol):
         return self.quote_tick(symbol)[0]
 
+    @locked
     def lot_rules(self, symbol) -> LotRules:
         return lot_rules_from_info(symbol, self._read(self.mt5.symbol_info, self._sym(symbol)))
 
     def rules(self, symbol):
         return self.lot_rules(symbol)
 
+    @locked
     def to_account(self, symbol: str, price: float) -> float | None:
         """Account-currency value of 1 unit of the symbol's profit currency."""
         rules = self.lot_rules(symbol)
@@ -126,9 +143,11 @@ class Mt5Broker(Broker):
         return None
 
     # ------------------------------------------------------------------ account
+    @locked
     def get_balance(self):
         return float(self._read(self.mt5.account_info).balance)
 
+    @locked
     def get_equity(self):
         return float(self._read(self.mt5.account_info).equity)
 
@@ -136,6 +155,7 @@ class Mt5Broker(Broker):
         found = self.mt5.positions_get(symbol=self._sym(symbol)) if symbol else self.mt5.positions_get()
         return [p for p in (found or ()) if p.magic == self.magic]
 
+    @locked
     def get_positions(self):
         """{symbol: lots}, negative = short. Only the bot's own positions."""
         out = {}
@@ -154,6 +174,7 @@ class Mt5Broker(Broker):
             return self.mt5.ORDER_FILLING_IOC
         return self.mt5.ORDER_FILLING_RETURN
 
+    @locked
     def place_order(self, symbol, side, decision, price):
         """Open a position WITH its stop-loss at the broker."""
         require_approval(decision)
@@ -193,6 +214,7 @@ class Mt5Broker(Broker):
         deals = self.mt5.history_deals_get(ticket=deal_ticket) or ()
         return -sum(d.commission + getattr(d, "fee", 0.0) for d in deals)
 
+    @locked
     def close_position(self, symbol, decision, price):
         """Close the bot's position on this symbol (market order in the opposite direction)."""
         require_approval(decision)
@@ -215,6 +237,7 @@ class Mt5Broker(Broker):
             return None
         return self.position_result(p.ticket) or Fill(float(result.volume), float(result.price), 0.0)
 
+    @locked
     def position_result(self, position_ticket: int) -> Fill | None:
         """Net result of a closed position from the deal history: exit price, costs and P&L
         (profit + swap + commission, in the account currency). reason 'stop_loss' if the broker's SL hit."""
@@ -227,15 +250,18 @@ class Mt5Broker(Broker):
         reason = "stop_loss" if exits[-1].reason == DEAL_REASON_SL else "closed"
         return Fill(sum(d.volume for d in exits), exits[-1].price, costs, pnl, reason)
 
+    @locked
     def position_ticket(self, symbol: str) -> int | None:
         positions = self._my_positions(symbol)
         return positions[0].ticket if positions else None
 
+    @locked
     def position_info(self, symbol: str):
         """The bot's open MT5 position on this symbol (ticket, price_open, sl, volume...) or None."""
         positions = self._my_positions(symbol)
         return positions[0] if positions else None
 
+    @locked
     def modify_stop(self, symbol: str, stop: float) -> bool:
         """Move the stop-loss at the broker (trailing stop)."""
         positions = self._my_positions(symbol)
@@ -249,6 +275,7 @@ class Mt5Broker(Broker):
             return False
         return True
 
+    @locked
     def cancel_all(self):
         """Cancel the bot's pending orders (it normally has none: it uses market orders)."""
         count = 0
@@ -258,6 +285,7 @@ class Mt5Broker(Broker):
                 count += bool(result and result.retcode in OK_CODES)
         return count
 
+    @locked
     def close_all(self) -> int:
         """Kill switch: close every position the bot opened."""
         from bot.risk import Decision
@@ -267,6 +295,7 @@ class Mt5Broker(Broker):
                 closed += 1
         return closed
 
+    @locked
     def history_rates(self, symbol: str, timeframe: str, start: datetime, end: datetime | None = None):
         """Candles between two dates (for the backtester's cache)."""
         tf = getattr(self.mt5, TIMEFRAMES[timeframe])

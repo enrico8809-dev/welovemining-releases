@@ -92,6 +92,29 @@ export interface Job {
   table?: { columns: string[]; rows: string[][] } | null;   // backtest summary
 }
 
+export interface LivePosition extends Position {
+  price: number | null;
+  pnl: number | null;          // open profit/loss in the account currency
+  move_pct: number | null;     // price move since entry, in the trade's direction
+  to_stop_pct: number | null;  // distance to the stop-loss (positive = safe side)
+  quote_time: string | null;
+}
+
+export interface Live {
+  time: string;
+  running: boolean;
+  paused: boolean;
+  kill_switch: boolean;
+  feed_error: string;
+  accounts: { market: string; equity: number | null; cash: number | null; currency: string; mode: string; open_pnl: number }[];
+  total: number;
+  open_pnl: number;
+  positions: LivePosition[];
+  watch: { market: string; symbol: string; price: number | null; time: string | null; signal: "long" | "short" | "out" | null; held: boolean }[];
+  history: Record<string, [string, number][]>;
+  activity: { time: string; market: string; kind: string; symbol: string; text: string }[];
+}
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -139,6 +162,7 @@ export class Api {
   }
 
   overview = () => this.req<Overview>("GET", "/api/overview");
+  live = () => this.req<Live>("GET", "/api/live");
   trades = (market?: string, limit = 300) =>
     this.req<{ trades: Trade[]; record: Record<string, TrackRecord> }>(
       "GET", `/api/trades?limit=${limit}${market ? `&market=${market}` : ""}`);

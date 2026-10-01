@@ -42,7 +42,10 @@ the bot gracefully. Settings → **Start with Windows** keeps it trading after a
 
 ## Screens
 
-Dashboard (total value, start/pause/stop, kill switch, markets) · Positions · History (win rate,
+Dashboard (total value, start/pause/stop, kill switch, markets) · **Live** (prices and open
+profit/loss every 2 seconds, where each price sits between its stop-loss and entry, the symbols the
+bot is watching with the strategy's current signal, and a feed of what the bot is checking and
+deciding) · Positions · History (win rate,
 P&L, track record) · Trading (markets, strategies, Forex swing/day mode, shorts, pairs, news pauses)
 · Risk (every limit, with plain-English help) · Research (backtests, data, coin scanner, regime,
 optimizer) · Alerts (WhatsApp, Telegram, test message) · Accounts (exchange and MT5 keys, real-money

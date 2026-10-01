@@ -323,6 +323,9 @@ The easiest way to run and control the bot: **`wlm-trader-app/`** (see its READM
 app starts the bot for you, and every setting, key, backtest and control (start, pause, stop, kill
 switch) is in the app; the Android app shows the same screens on your phone through Tailscale.
 
+Its **Live** screen shows real-time prices, open profit/loss and the bot's activity feed
+(`bot/activity.py`: every check, signal, skipped trade, order and stop move, in plain words).
+
 Behind it is `bot/server.py` (`python -m bot.server`): a JSON API on `127.0.0.1:8765` protected by
 `APP_TOKEN` in `.env` (created automatically). Settings changed in the app are saved to
 `data/app_settings.json` (on top of `config.yaml`). Keys and passwords can only be changed from the

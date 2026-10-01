@@ -328,6 +328,181 @@ class Jobs:
                 sorted(self.jobs.values(), key=lambda j: j["started"], reverse=True)]
 
 
+# ---------------------------------------------------------------------------- live prices
+class PriceFeed:
+    """Fetches the current price of every open position (and the watched symbols) in the
+    background, every few seconds, so the app's Live screen answers instantly.
+    Uses the running traders' brokers when the bot is on; otherwise its own read-only ones."""
+
+    HISTORY = 400          # points kept per symbol for the sparklines
+
+    def __init__(self, store: StateStore, engine: Engine, every: float = 2.0):
+        self.store, self.engine, self.every = store, engine, every
+        self.prices: dict[str, dict] = {}            # symbol -> {price, time, market}
+        self.history: dict[str, list] = {}           # symbol -> [[time, price], ...]
+        self.signals: dict[str, str] = {}            # "market:symbol" -> long / short / out
+        self._own: dict[str, object] = {}            # market -> read-only broker
+        self._thread: threading.Thread | None = None
+        self.last_error = ""
+
+    def start(self) -> None:
+        self._thread = threading.Thread(target=self._loop, name="price-feed", daemon=True)
+        self._thread.start()
+
+    def _loop(self) -> None:
+        while True:
+            try:
+                self.refresh()
+                self.last_error = ""
+            except Exception as e:
+                self.last_error = str(e)
+            time.sleep(self.every)
+
+    def _trader(self, market: str):
+        for t in self.engine.status.get("traders") or []:
+            if getattr(t, "market", "") == market:
+                return t
+        return None
+
+    def _broker(self, market: str, cfg: dict):
+        trader = self._trader(market)
+        if trader is not None:
+            return trader.broker
+        if market not in self._own:
+            if market == "crypto":
+                from bot.brokers.ccxt_broker import CcxtBroker
+                broker = CcxtBroker(live=False)
+                if cfg["trader"].get("public_url"):
+                    broker.ex.urls["api"]["public"] = cfg["trader"]["public_url"]
+            elif market == "forex":
+                from bot.trader import connect_mt5
+                broker = connect_mt5(cfg, live_allowed=True)        # read-only use
+            else:
+                from bot.brokers.ibkr_broker import YahooData
+                broker = YahooData(market, cfg["markets"][market])
+            self._own[market] = broker
+        return self._own[market]
+
+    def watched(self, cfg: dict) -> dict[str, list[str]]:
+        """{market: symbols} = open positions first, then what the bot watches."""
+        out: dict[str, list[str]] = {}
+        for p in self.store.positions():
+            out.setdefault(p.market, []).append(p.symbol)
+        for market in cfg["trader"]["markets"]:
+            trader = self._trader(market)
+            symbols = list(trader.symbols) if trader is not None and hasattr(trader, "symbols") else \
+                (trader.symbols_fn() if trader is not None and hasattr(trader, "symbols_fn") else None)
+            if symbols is None:
+                symbols = cfg["markets"][market]["symbols"]
+                if market == "crypto":
+                    from bot.scanner import load_saved
+                    symbols = load_saved() or symbols
+            for sym in symbols[:12]:
+                if sym not in out.setdefault(market, []):
+                    out[market].append(sym)
+            # The last signal each trader computed
+            if trader is not None:
+                for sym, cached in getattr(trader, "_signals", {}).items():
+                    value = cached[1]
+                    self.signals[f"{market}:{sym}"] = ("long" if value in (True, 1) else "short" if value == -1 else "out")
+        return out
+
+    def refresh(self) -> None:
+        cfg = load_config()
+        for market, symbols in self.watched(cfg).items():
+            try:
+                broker = self._broker(market, cfg)
+            except Exception as e:
+                self.last_error = f"{market}: {e}"
+                continue
+            for sym in symbols:
+                try:
+                    price = float(broker.get_price(sym))
+                except Exception as e:
+                    self.last_error = f"{market} {sym}: {e}"
+                    continue
+                now = now_iso()
+                self.prices[sym] = {"price": price, "time": now, "market": market}
+                hist = self.history.setdefault(sym, [])
+                if not hist or hist[-1][1] != price:
+                    hist.append([now, price])
+                    del hist[:-self.HISTORY]
+
+
+def unrealized(pos, price: float, trader=None) -> float | None:
+    """Open profit/loss of a position at this price, in the account currency."""
+    if pos.market != "forex":
+        return (price - pos.entry_price) * pos.qty
+    try:
+        rules = trader.broker.lot_rules(pos.symbol) if trader is not None else None
+        conv = trader.broker.to_account(pos.symbol, price) if trader is not None else None
+    except Exception:
+        rules = conv = None
+    if rules is None:
+        from bot.rules import LotRules
+        rules = LotRules.default_for(pos.symbol)
+        conv = rules.to_account(price, "USD")
+    if not conv:
+        return None
+    return (price - pos.entry_price) * pos.qty * rules.contract_size * conv
+
+
+def live_view(cfg: dict, store: StateStore, engine: Engine, feed: PriceFeed) -> dict:
+    from bot.activity import recent
+    positions = []
+    live_value: dict[str, float] = {}
+    for p in store.positions():
+        quote = feed.prices.get(p.symbol)
+        price = quote["price"] if quote else None
+        trader = feed._trader(p.market)
+        pnl = unrealized(p, price, trader) if price is not None else None
+        side = 1 if p.qty > 0 else -1
+        move = side * (price / p.entry_price - 1) * 100 if price else None
+        to_stop = side * (price - p.stop) / price * 100 if price else None
+        positions.append({**p.__dict__, "side": "short" if p.qty < 0 else "long", "price": price,
+                          "pnl": round(pnl, 2) if pnl is not None else None,
+                          "move_pct": round(move, 3) if move is not None else None,
+                          "to_stop_pct": round(to_stop, 3) if to_stop is not None else None,
+                          "quote_time": quote["time"] if quote else None})
+        if price is not None and p.market != "forex":
+            live_value[p.market] = live_value.get(p.market, 0.0) + abs(p.qty) * price
+    accounts = []
+    for market in cfg["trader"]["markets"]:
+        acct = store.get(f"account:{market}") or {}
+        paper = store.get(f"paper:{market}") or {}
+        cash = acct.get("cash", paper.get("cash"))
+        trader = feed._trader(market)
+        if market == "forex":
+            equity = acct.get("equity")
+            if trader is not None:
+                try:
+                    equity = trader.broker.get_equity()
+                except Exception:
+                    pass
+            open_pnl = sum(q["pnl"] or 0 for q in positions if q["market"] == "forex")
+        else:
+            equity = (cash + live_value.get(market, 0.0)) if cash is not None and (market in live_value or
+                      not any(q["market"] == market for q in positions)) else acct.get("equity")
+            open_pnl = sum(q["pnl"] or 0 for q in positions if q["market"] == market)
+        accounts.append({"market": market, "equity": round(equity, 2) if equity is not None else None,
+                         "cash": cash, "currency": acct.get("currency", "USDT" if market == "crypto" else "USD"),
+                         "mode": acct.get("mode", "paper"), "open_pnl": round(open_pnl, 2)})
+    watch = [{"market": m, "symbol": s, **feed.prices.get(s, {"price": None, "time": None}),
+              "signal": feed.signals.get(f"{m}:{s}"),
+              "held": any(q["symbol"] == s and q["market"] == m for q in positions)}
+             for m, syms in feed.watched(cfg).items() for s in syms]
+    from bot.trader import PAUSE_FLAG, STOP_FLAG
+    return {
+        "time": now_iso(), "running": engine.running, "paused": bool(store.get(PAUSE_FLAG)),
+        "kill_switch": bool(store.get(STOP_FLAG)), "feed_error": feed.last_error,
+        "accounts": accounts, "total": round(sum(a["equity"] or 0 for a in accounts if a["currency"] in ("USD", "USDT")), 2),
+        "open_pnl": round(sum(a["open_pnl"] for a in accounts), 2),
+        "positions": positions, "watch": watch,
+        "history": {s: feed.history.get(s, [])[-120:] for s in {q["symbol"] for q in positions}},
+        "activity": recent(store, 80),
+    }
+
+
 # ---------------------------------------------------------------------------- read models
 def track_record(store: StateStore) -> dict:
     """Paper/demo history per market, for the 'before you go live' screen."""
@@ -466,7 +641,7 @@ class Pairing:
             return None
 
 
-def make_handler(store: StateStore, engine: Engine, jobs: Jobs, token: str):
+def make_handler(store: StateStore, engine: Engine, jobs: Jobs, token: str, feed: PriceFeed | None = None):
     pairing = Pairing(token)
 
     class Handler(BaseHTTPRequestHandler):
@@ -536,6 +711,8 @@ def make_handler(store: StateStore, engine: Engine, jobs: Jobs, token: str):
             try:
                 if method == "GET" and path == "/api/overview":
                     return self._send(200, overview(cfg, store, engine))
+                if method == "GET" and path == "/api/live":
+                    return self._send(200, live_view(cfg, store, engine, feed) if feed else {"error": "no feed"})
                 if method == "GET" and path == "/api/trades":
                     limit = min(int(query.get("limit", 200)), 2000)
                     market = query.get("market")
@@ -597,9 +774,10 @@ def make_handler(store: StateStore, engine: Engine, jobs: Jobs, token: str):
     return Handler
 
 
-def serve(store: StateStore, engine: Engine, port: int = DEFAULT_PORT, token: str | None = None) -> ThreadingHTTPServer:
+def serve(store: StateStore, engine: Engine, port: int = DEFAULT_PORT, token: str | None = None,
+          feed: PriceFeed | None = None) -> ThreadingHTTPServer:
     token = token or ensure_token()
-    return ThreadingHTTPServer(("127.0.0.1", port), make_handler(store, engine, Jobs(), token))
+    return ThreadingHTTPServer(("127.0.0.1", port), make_handler(store, engine, Jobs(), token, feed))
 
 
 def main():
@@ -614,7 +792,9 @@ def main():
         return
     store = StateStore()
     engine = Engine(store)
-    server = serve(store, engine, args.port, token)
+    feed = PriceFeed(store, engine)
+    feed.start()
+    server = serve(store, engine, args.port, token, feed)
     print(f"WLM Trader server on http://127.0.0.1:{args.port}  (phone: tailscale serve --bg {args.port})", flush=True)
     if not args.no_autostart:
         print(f"Auto-Trader: {engine.start()}", flush=True)

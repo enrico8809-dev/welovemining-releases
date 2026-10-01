@@ -1,12 +1,13 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import {
-  Activity, Bell, Bot, BriefcaseBusiness, FlaskConical, History, KeyRound, LayoutDashboard,
+  Activity, Bell, Bot, BriefcaseBusiness, FlaskConical, History, KeyRound, LayoutDashboard, Radio,
   Menu, ScrollText, Settings as SettingsIcon, ShieldCheck, SlidersHorizontal, X,
 } from "lucide-react";
 import { Api, ApiError, Connection, Overview, pair, savedConnection, saveConnection } from "./api";
 import { BotState, desktop } from "./desktop";
 import { Banner } from "./components/ui";
 import Dashboard from "./screens/Dashboard";
+import Live from "./screens/Live";
 import Positions from "./screens/Positions";
 import HistoryScreen from "./screens/History";
 import Trading from "./screens/Trading";
@@ -29,10 +30,11 @@ interface AppState {
 const AppContext = createContext<AppState | null>(null);
 export const useApp = () => useContext(AppContext)!;
 
-type ScreenId = "dashboard" | "positions" | "history" | "trading" | "risk" | "research" | "alerts" | "accounts" | "logs" | "settings";
+type ScreenId = "dashboard" | "live" | "positions" | "history" | "trading" | "risk" | "research" | "alerts" | "accounts" | "logs" | "settings";
 
 const SCREENS: { id: ScreenId; label: string; icon: ReactNode; render: () => ReactNode }[] = [
   { id: "dashboard", label: "Dashboard", icon: <LayoutDashboard size={19} />, render: () => <Dashboard /> },
+  { id: "live", label: "Live", icon: <Radio size={19} />, render: () => <Live /> },
   { id: "positions", label: "Positions", icon: <BriefcaseBusiness size={19} />, render: () => <Positions /> },
   { id: "history", label: "History", icon: <History size={19} />, render: () => <HistoryScreen /> },
   { id: "trading", label: "Trading", icon: <SlidersHorizontal size={19} />, render: () => <Trading /> },
@@ -43,7 +45,7 @@ const SCREENS: { id: ScreenId; label: string; icon: ReactNode; render: () => Rea
   { id: "logs", label: "Logs", icon: <ScrollText size={19} />, render: () => <Logs /> },
   { id: "settings", label: "Settings", icon: <SettingsIcon size={19} />, render: () => <SettingsScreen /> },
 ];
-const PHONE_TABS: ScreenId[] = ["dashboard", "positions", "history", "trading"];
+const PHONE_TABS: ScreenId[] = ["dashboard", "live", "positions", "trading"];
 
 // ---------------------------------------------------------------- root
 export default function App() {

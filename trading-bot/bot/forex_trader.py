@@ -16,6 +16,7 @@ import math
 import threading
 from datetime import datetime, timedelta, timezone
 
+from bot.activity import record
 from bot.forex_hours import day_entry_block, entry_block_reason, must_be_flat, trading_day
 from bot.logger import get_logger
 from bot.risk import RiskManager
@@ -62,6 +63,8 @@ class ForexTrader:
             value = load_strategy(self.strategy_name, **self.strategy_params).target_exposure(candles).iloc[-1]
             direction = 1 if value > 0 else -1 if value < 0 else 0
         self._signals[symbol] = (period, direction, candles)
+        record(self.store, "forex", "signal", f"{symbol}: strategy wants "
+               + {1: "LONG", -1: "SHORT", 0: "nothing (flat)"}[direction], symbol)
         return direction, candles
 
     def _atr(self, candles) -> float:
@@ -94,6 +97,7 @@ class ForexTrader:
 
         equity = self.broker.get_equity()
         now = self._now()
+        record(self.store, "forex", "loop", f"Checked prices: {len(held)} open position(s), account value {equity:,.2f} {self.broker.quote}")
         self.risk.update_equity(equity, now)
         self.store.record_equity(self.market, equity)
         self.snapshot(equity)
@@ -109,6 +113,7 @@ class ForexTrader:
         if block:
             if block != self._last_block:
                 log.info("[forex] no new trades: %s", block)
+                record(self.store, "forex", "info", f"No new Forex trades: {block}")
             self._last_block = block
             return
         self._last_block = ""
@@ -149,6 +154,7 @@ class ForexTrader:
             new_stop = rules.round_price(self.risk.trailing_stop(pos.stop, pos.highest, current_atr, side))
             if new_stop != pos.stop and self.broker.modify_stop(pos.symbol, new_stop):
                 log.info("[forex] %s trailing stop %s -> %s", pos.symbol, pos.stop, new_stop)
+                record(self.store, "forex", "stop", f"{pos.symbol}: trailing stop moved to {new_stop}", pos.symbol)
                 pos.stop = new_stop
         self.store.save_position(pos)
         if want != (1 if side == "buy" else -1):
@@ -172,6 +178,7 @@ class ForexTrader:
             rules, self.broker.to_account(symbol, entry), self._now(), spread=ask - bid)
         if not decision.approved:
             log.info("[forex] %s %s not approved (%s)", side, symbol, decision.reason)
+            record(self.store, "forex", "skip", f"{symbol}: {side} not approved ({decision.reason})", symbol)
             return False
         fill = self.broker.place_order(symbol, side, decision, entry)
         if not fill:
@@ -186,6 +193,7 @@ class ForexTrader:
         msg = (f"{'BUY' if side == 'buy' else 'SELL (short)'} {symbol} [forex, {self.mode}]: {fill.qty:g} lots @ "
                f"{fill.price:.6g}, stop {decision.stop_price:.6g}")
         log.info(msg)
+        record(self.store, "forex", "order", msg, symbol)
         self.notify(msg)
         return True
 
@@ -221,6 +229,7 @@ class ForexTrader:
         msg = (f"CLOSE {pos.symbol} [forex, {self.mode}] ({reason}): {fill.qty:g} lots @ {fill.price:.6g}, "
                f"P&L {pnl:+.2f} {self.broker.quote}")
         log.info(msg)
+        record(self.store, "forex", "order", msg, pos.symbol)
         self.notify(msg)
 
     # ------------------------------------------------------------------ startup / kill switch

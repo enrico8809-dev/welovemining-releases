@@ -158,3 +158,27 @@ def test_pairing_code_dies_after_five_wrong_tries(api):
     for _ in range(5):
         call("POST", "/api/pair", {"code": wrong}, token="")
     assert call("POST", "/api/pair", {"code": code}, token="")[0] == 403
+
+
+def test_live_view_prices_pnl_and_activity(api):
+    from bot.activity import record
+    from bot.storage import Position
+    call, store, engine, _ = api
+    store.save_position(Position("crypto", "AAA/USDT", 2.0, 100.0, 90.0, 110.0, "t"))
+    store.save_position(Position("forex", "EURUSD", -0.1, 1.1000, 1.1100, 1.0950, "t"))
+    store.set("paper:crypto", {"cash": 800.0, "holdings": {"AAA/USDT": 2.0}})
+    store.set("account:forex", {"equity": 10_000, "cash": 10_000, "currency": "USD", "mode": "demo"})
+    record(store, "crypto", "skip", "BBB/USDT: buy not approved (max open trades (3) reached)", "BBB/USDT")
+    feed = server.PriceFeed(store, engine)
+    feed.prices = {"AAA/USDT": {"price": 105.0, "time": "now", "market": "crypto"},
+                   "EURUSD": {"price": 1.0900, "time": "now", "market": "forex"}}
+    feed.watched = lambda cfg: {"crypto": ["AAA/USDT"], "forex": ["EURUSD"]}
+    cfg = {"trader": {"markets": ["crypto", "forex"]}, "markets": {"crypto": {"symbols": []}, "forex": {"symbols": []}}}
+    live = server.live_view(cfg, store, engine, feed)
+    crypto = next(p for p in live["positions"] if p["symbol"] == "AAA/USDT")
+    assert crypto["pnl"] == 10.0 and crypto["move_pct"] == 5.0                     # 2 x (105 - 100)
+    fx = next(p for p in live["positions"] if p["symbol"] == "EURUSD")
+    assert fx["side"] == "short" and fx["pnl"] == pytest.approx(100.0)              # short 0.1 lot, 100 pips
+    assert next(a for a in live["accounts"] if a["market"] == "crypto")["equity"] == 1010.0   # cash + live value
+    assert live["activity"][0]["kind"] == "skip"
+    assert any(w["symbol"] == "AAA/USDT" and w["held"] for w in live["watch"])
