@@ -54,10 +54,20 @@ live order tracking. Green & grey, Android-first. **18+ only.**
 The APK is built on EAS and auto-published to the release above by GitHub Actions
 (needs an `EXPO_TOKEN` repo secret). See [`mr-dweedery/README.md`](mr-dweedery/README.md).
 
-## WLM Trading Bot 📈 (crypto spot bot)
+## WLM Trader 📈 (trading bot + Windows/Android app)
 
-Personal CCXT spot-trading bot (Binance first). Paper mode by default, spot only, never withdraws.
-See [`trading-bot/README.md`](trading-bot/README.md).
+Personal trading bot for crypto (Binance, spot only), stocks (Interactive Brokers) and Forex/gold
+(MetaTrader 5, demo by default, 1:1 swing / 3:1 day mode). Paper mode by default, never withdraws.
+
+| Part | Runs on | Download |
+|---|---|---|
+| **WLM Trader** for Windows | the PC that trades (runs the bot) | [`trader-latest`](../../releases/tag/trader-latest) → `WLM-Trader-Setup.exe` |
+| **WLM Trader** for Android | your phone (via Tailscale) | [`trader-latest`](../../releases/tag/trader-latest) → `WLM-Trader.apk` |
+
+- `trading-bot/` — the bot (Python): strategies, backtester, Risk Manager, auto-trader, app server.
+  See [`trading-bot/README.md`](trading-bot/README.md).
+- `wlm-trader-app/` — the app (React; Electron for Windows, Capacitor for Android).
+  See [`wlm-trader-app/README.md`](wlm-trader-app/README.md).
 
 ## Support
 

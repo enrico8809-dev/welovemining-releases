@@ -2,7 +2,8 @@
 import ccxt
 import pytest
 
-from bot.broker import CcxtBroker, OrderRejected
+from bot.brokers.base import OrderRejected
+from bot.brokers.ccxt_broker import CcxtBroker
 from bot.risk import Decision
 
 
@@ -45,37 +46,37 @@ def broker(ex):
 
 
 def test_buy_keeps_the_amount_really_received_after_the_fee():
-    fill = broker(FakeExchange()).buy("BTC/USDT", Decision(True, "ok", amount=0.001), 50_000)
+    fill = broker(FakeExchange()).place_order("BTC/USDT", "buy", Decision(True, "ok", amount=0.001), 50_000)
     assert fill.qty == pytest.approx(0.000999)            # 0.1% fee taken in BTC
     assert fill.fee == pytest.approx(0.05)                 # = 0.000001 BTC x 50,000 in USDT
 
 
 def test_sell_never_asks_for_more_than_is_free():
     ex = FakeExchange()
-    broker(ex).sell("BTC/USDT", Decision(True, "ok", amount=0.001), 50_000)
+    broker(ex).close_position("BTC/USDT", Decision(True, "ok", amount=0.001), 50_000)
     assert ex.orders == [("sell", pytest.approx(0.000999))]
 
 
 def test_network_error_checks_the_exchange_instead_of_retrying(monkeypatch):
-    import bot.broker as module
+    import bot.brokers.ccxt_broker as module
     monkeypatch.setattr(module.time, "sleep", lambda s: None)
     ex = FakeExchange(fail_with=ccxt.NetworkError("connection reset"), went_through=True)
-    fill = broker(ex).buy("BTC/USDT", Decision(True, "ok", amount=0.001), 50_000)
+    fill = broker(ex).place_order("BTC/USDT", "buy", Decision(True, "ok", amount=0.001), 50_000)
     assert len(ex.orders) == 1                             # sent once, never twice
     assert fill is not None and fill.qty == pytest.approx(0.000999)
 
     ex = FakeExchange(fail_with=ccxt.NetworkError("timeout"), went_through=False)
-    assert broker(ex).buy("BTC/USDT", Decision(True, "ok", amount=0.001), 50_000) is None
+    assert broker(ex).place_order("BTC/USDT", "buy", Decision(True, "ok", amount=0.001), 50_000) is None
     assert len(ex.orders) == 1
 
 
 def test_rejected_orders_do_not_crash():
     ex = FakeExchange(fail_with=ccxt.InsufficientFunds("not enough USDT"))
-    assert broker(ex).buy("BTC/USDT", Decision(True, "ok", amount=0.001), 50_000) is None
+    assert broker(ex).place_order("BTC/USDT", "buy", Decision(True, "ok", amount=0.001), 50_000) is None
 
 
 def test_live_orders_need_approval():
     ex = FakeExchange()
     with pytest.raises(OrderRejected):
-        broker(ex).buy("BTC/USDT", Decision(False, "halted", amount=0.001), 50_000)
+        broker(ex).place_order("BTC/USDT", "buy", Decision(False, "halted", amount=0.001), 50_000)
     assert ex.orders == []

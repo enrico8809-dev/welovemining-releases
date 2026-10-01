@@ -5,7 +5,8 @@ Run it from the trading-bot folder:
     python -m data.downloader --market crypto        (only crypto; or forex / stocks)
     python -m data.downloader --market crypto --symbols BTC/USDT --timeframes 1d
 
-Crypto comes from the exchange in .env (via CCXT); Forex and stocks from Yahoo Finance.
+Crypto comes from the exchange in .env (via CCXT); stocks from Yahoo Finance; Forex from
+MetaTrader 5 (Windows, terminal running) or Yahoo Finance as the fallback.
 Running it again only adds the new candles since the last run.
 Only CLOSED candles are saved, so the backtester can never see an unfinished candle.
 """
@@ -162,6 +163,20 @@ def main():
                         download_yahoo(symbol, tf, start, cache_dir)
                     except Exception as e:
                         log.error("Failed %s %s: %s", symbol, tf, e)
+        elif market["source"] == "mt5":
+            # Forex: MT5 history (Windows, terminal running); Yahoo as the fallback
+            from data.forex_data import download_mt5, yahoo_symbol
+            from data.yahoo import download_yahoo
+            try:
+                download_mt5(symbols, timeframes, start, cache_dir, cfg.get("mt5", {}).get("symbol_suffix", ""))
+            except Exception as e:
+                log.warning("MT5 history not available (%s); downloading Yahoo data instead", e)
+                for symbol in symbols:
+                    for tf in timeframes:
+                        try:
+                            download_yahoo(yahoo_symbol(symbol, market), tf, start, cache_dir)
+                        except Exception as e2:
+                            log.error("Failed %s %s: %s", symbol, tf, e2)
         else:
             log.error("Unknown source '%s' for market %s", market["source"], name)
 

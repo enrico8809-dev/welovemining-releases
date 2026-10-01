@@ -3,12 +3,13 @@
 # ---------------------------------------------------------------------------
 # Markets. Each market has its own data source, coins/symbols, costs and test periods.
 #   source: ccxt  -> crypto exchange from EXCHANGE in .env (binance, luno, ...)
-#   source: yahoo -> Yahoo Finance history for Forex, stocks, ETFs, gold (backtesting only;
-#                    live trading of these markets will go through Interactive Brokers)
+#   source: yahoo -> Yahoo Finance history for stocks/ETFs (live orders: Interactive Brokers)
+#   source: mt5   -> MetaTrader 5 for Forex and gold (DEMO account unless FOREX_LIVE_TRADING=true)
 # Costs:  fee_pct = % of order value per side, min_fee = minimum fee per order
 #         (in the pair's quote currency), slippage_pct = price slippage per side.
 # min_order = smallest order value, amount_step = smallest amount increment.
-# Everything is spot/cash only: never shorting, never leverage (Forex is traded 1:1).
+# Crypto and stocks are spot/cash only: never shorting, never leverage.
+# Forex may go long or short, but total exposure is capped at 1:1 (forex_risk: max_leverage).
 # ---------------------------------------------------------------------------
 markets:
   crypto:
@@ -26,16 +27,24 @@ markets:
       bull:     { start: "2023-01-01", end: "2024-03-31" }
       sideways: { start: "2024-04-01", end: "2024-10-31" }
 
-  forex:
-    source: yahoo
+  forex:                      # Forex + gold through MetaTrader 5 (see "mt5:" and "forex_risk:" below)
+    source: mt5               # backtests: MT5 history if downloaded (python -m data.forex_data), else Yahoo
     history_start: "2012-01-01"
-    timeframes: ["1d", "1h"]  # Yahoo only has the last ~2 years of hourly Forex data
-    symbols: [EURUSD=X, GBPUSD=X, AUDUSD=X, USDJPY=X, USDZAR=X]
-    fee_pct: 0.002            # Interactive Brokers: 0.2 basis points...
-    min_fee: 2                # ...with a 2 USD minimum per order
-    slippage_pct: 0.01
-    min_order: 100
-    amount_step: 1            # whole currency units
+    timeframes: ["1d", "1h"]  # 1h = day-trading mode
+    symbols: [EURUSD, GBPUSD, USDJPY, AUDUSD, USDCHF, USDCAD, USDZAR, XAUUSD]
+    account_currency: USD     # your MT5 account currency
+    strategy: regime          # may go long AND short (shorts only in a downtrend)
+    allow_short: true         # false = long only (in backtests long-only did a little better)
+    mode: swing               # swing = daily candles, hold days/weeks (1:1)
+                              # day   = quick intraday trades, flat every evening (see forex_day:)
+    commission_per_lot: 0     # per lot per side in USD (ECN/raw-spread accounts: ~3.5)
+    yahoo_symbols: { XAUUSD: "GC=F" }   # Yahoo names for the fallback data (default: EURUSD=X)
+    # Used only without MT5 history: typical spreads (points) and swaps (points per lot per night,
+    # [long, short]). Your broker's real values replace them after  python -m data.forex_data
+    default_spread_points: { EURUSD: 12, GBPUSD: 15, USDJPY: 14, AUDUSD: 14, USDCHF: 16,
+                             USDCAD: 18, USDZAR: 900, XAUUSD: 30 }
+    default_swap: { EURUSD: [-8, 3], GBPUSD: [-4, -2], USDJPY: [12, -25], AUDUSD: [-4, -1],
+                    USDCHF: [8, -16], USDCAD: [2, -8], USDZAR: [-350, 150], XAUUSD: [-45, 20] }
     periods:                  # based on EUR/USD's history
       sideways: { start: "2015-03-01", end: "2016-12-31" }
       bear:     { start: "2021-06-01", end: "2022-09-30" }
@@ -85,6 +94,45 @@ risk:
   stops_window_hours: 24       # ... within 24 hours ...
   stops_pause_hours: 48        # ... -> pause 48 hours
 
+# Forex Risk Manager settings: the same as `risk:` above, except what's listed here.
+# Every Forex order carries its stop-loss to the broker. Size (lots) = 1% of the account
+# lost if the stop is hit, but total exposure never more than max_leverage x the account.
+forex_risk:
+  max_leverage: 1              # 1 = no leverage: open positions never worth more than your account
+  max_lots: 1.0                # hard cap per order
+  max_open_trades: 3
+  risk_per_trade_pct: 1
+
+# Forex DAY-TRADING mode (markets.forex.mode: day): quick trades on hourly candles during the
+# London + New York sessions, everything closed before the 17:00 New York rollover (no swap,
+# nothing held overnight or over the weekend). Each trade still risks ~1% at its broker stop.
+forex_day:
+  timeframe: 1h
+  strategy: sma_cross          # 2-year hourly backtest: sma_cross +3% avg, rsi_dip 0%, regime 0%, breakout -3%
+  params: { fast: 10, slow: 40 }
+  max_leverage: 3              # day trades use tight stops; up to 3x the account in total (your choice)
+  risk_per_trade_pct: 1
+  stop_atr_mult: 1.5
+  trailing_atr_mult: 3
+  max_trades_per_day: 6
+  session_start_utc: 7         # London open
+  session_end_utc: 20          # no new trades after this hour (UTC)
+  flat_minutes_before_rollover: 60
+  loop_seconds: 60             # check every minute in day mode
+
+# When new Forex trades may be opened (open positions are always managed)
+forex_hours:
+  avoid_after_open_minutes: 60       # no new trades in the first hour after the Sunday open
+  stop_new_before_close_minutes: 60  # ... nor in the last hour before the Friday close
+  news_pause_minutes: 30             # no new trades this long before/after each event below
+  news_events: []                    # UTC times, e.g. "2026-10-02 12:30 US jobs report (NFP)"
+
+# MetaTrader 5 (Forex). Login, password and server go in .env (MT5_LOGIN, MT5_PASSWORD, MT5_SERVER).
+mt5:
+  magic: 880088                # marks the bot's own trades; your manual trades are never touched
+  symbol_suffix: ""            # if your broker names symbols like EURUSD.m, put ".m" here
+  deviation_points: 20         # max slippage accepted on market orders
+
 # Coin Scanner (bot/scanner.py): which USDT spot pairs are liquid enough to trade
 scanner:
   min_volume_usdt: 10000000    # at least 10 million USDT traded in the last 24 hours
@@ -114,10 +162,9 @@ trader:
   paper_capital:                     # starting money for PAPER trading, per market
     crypto: 1000                     # USDT
     stocks: 1000                     # USD
-    forex: 1000                      # USD (only XXX/USD pairs can be bought with USD cash)
   # public_url: https://data-api.binance.vision/api/v3   # optional price source if Binance blocks you
 
-# Interactive Brokers (LIVE stocks/Forex only). Start TWS or IB Gateway and enable the API:
+# Interactive Brokers (LIVE stocks only). Start TWS or IB Gateway and enable the API:
 # TWS -> Settings -> API -> "Enable ActiveX and Socket Clients". Paper account port 7497, live 7496.
 ibkr:
   host: 127.0.0.1
@@ -128,7 +175,9 @@ data:
   cache_dir: data/cache
 
 backtest:
-  initial_capital: 1000       # starting money, in the pair's quote currency (USDT, USD, ZAR, ...)
+  initial_capital: 1000       # starting money for crypto and stocks (USDT / USD)
+  forex_capital: 10000        # starting money for Forex backtests (account currency); at 1:1,
+                              # 0.01 lot EURUSD needs ~1,200 USD of account
   min_trades_warning: 30      # fewer trades than this = result not statistically meaningful
 
 logging:

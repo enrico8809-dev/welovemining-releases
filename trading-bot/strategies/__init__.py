@@ -16,6 +16,17 @@ def available_strategies() -> list[str]:
     return sorted(m.name for m in pkgutil.iter_modules([str(folder)]) if m.name not in ("base", "indicators"))
 
 
+def supports_short(name: str) -> bool:
+    """True if the strategy can also go short (it accepts allow_short=True)."""
+    if name not in available_strategies():
+        return False
+    module = importlib.import_module(f"strategies.{name}")
+    for _, cls in inspect.getmembers(module, inspect.isclass):
+        if issubclass(cls, Strategy) and cls is not Strategy and cls.__module__ == module.__name__:
+            return "allow_short" in inspect.signature(cls.__init__).parameters
+    return False
+
+
 def load_strategy(name: str, **params) -> Strategy:
     if name not in available_strategies():
         raise ValueError(f"Unknown strategy '{name}'. Available: {', '.join(available_strategies())}")

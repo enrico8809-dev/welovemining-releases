@@ -1,6 +1,6 @@
 """Auto-Trader: the main loop that runs 24/7 on your PC.
 
-Every loop (default every 5 minutes), for each enabled market (crypto / stocks / forex):
+Every loop (default every 5 minutes), for each enabled market (crypto / stocks):
   1. Get the coins/stocks to watch (crypto: the Coin Scanner's list, re-scanned daily).
   2. For every open position: check the stop-loss / trailing stop with the live price,
      and sell if the strategy says "out".
@@ -10,21 +10,29 @@ Every loop (default every 5 minutes), for each enabled market (crypto / stocks /
 
 PAPER mode (default, LIVE_TRADING=false in .env): live prices, simulated fills with fees.
 LIVE mode (LIVE_TRADING=true): real orders. Crypto via your exchange's API keys;
-stocks/Forex via Interactive Brokers (TWS / IB Gateway must be running).
+stocks via Interactive Brokers (TWS / IB Gateway must be running).
+Forex runs through MetaTrader 5 (bot/forex_trader.py): a DEMO account unless
+FOREX_LIVE_TRADING=true, long and short, every order with its stop-loss at the broker.
 
     python -m bot.trader              start the bot (Ctrl+C to stop)
     python -m bot.trader --once       run one loop and exit (good for testing)
     python -m bot.trader --status     show positions, balances and halts
-    python -m bot.trader --kill       KILL SWITCH: cancel open orders, block new trades, stop the bot
+    python -m bot.trader --kill       KILL SWITCH: cancel orders, close Forex positions, block new trades, stop
 """
 import argparse
 import math
 import signal
+import socket
+import threading
 import time
 from datetime import datetime, timezone
 
-from bot.broker import Broker, CcxtBroker, IbkrBroker, PaperBroker, YahooData
-from bot.config import load_config, is_live_trading
+from bot.activity import record
+from bot.brokers.base import Broker
+from bot.brokers.ccxt_broker import CcxtBroker
+from bot.brokers.ibkr_broker import IbkrBroker, YahooData
+from bot.brokers.paper import PaperBroker
+from bot.config import is_forex_live, is_live_trading, load_config
 from bot.logger import get_logger
 from bot.risk import RiskConfig, RiskManager
 from bot.storage import Position, StateStore, now_iso
@@ -47,6 +55,8 @@ class MarketTrader:
         self.symbols_fn = symbols_fn       # returns the symbols to watch right now
         self.mode = mode                   # "paper" or "live"
         self.notify = notify               # Telegram alerts (Phase 8); no-op by default
+        self.interval = 300                # seconds between loops (set from config by build_traders)
+        self.stop_event = threading.Event()  # set by the app's Stop button: finish quickly
         self._signals = {}                 # symbol -> (UTC day, wants in?, candles)
 
     # ------------------------------------------------------------------ helpers
@@ -54,24 +64,29 @@ class MarketTrader:
         return datetime.now(timezone.utc)
 
     def equity(self, prices: dict) -> float:
-        cash, holdings = self.broker.balances()
-        value = cash
+        value = self.broker.get_balance()
         for p in self.store.positions(self.market):
             value += p.qty * prices.get(p.symbol, p.entry_price)
         return value
 
-    def tradeable(self, symbol: str) -> bool:
-        """Spot/cash only: with USD cash we can only BUY pairs quoted in USD (EUR/USD yes,
-        USD/JPY no - that would mean borrowing yen). Stocks and USDT crypto pairs are fine."""
-        if self.market == "forex":
-            return symbol.replace("=X", "").endswith("USD")
-        return True
+    def snapshot(self, equity: float) -> None:
+        """What the app, Telegram and the dashboard show for this account."""
+        self.store.set(f"account:{self.market}", {
+            "equity": round(equity, 2), "cash": round(self.broker.get_balance(), 2),
+            "currency": self.broker.quote, "mode": self.mode, "updated": now_iso()})
+
+    def on_kill(self) -> None:
+        """Kill switch: cancel open orders. Spot holdings are kept (no leverage, no forced sale)."""
+        if self.broker.live:
+            log.warning("[%s] cancelled %d open orders", self.market, self.broker.cancel_all())
 
     # ------------------------------------------------------------------ one loop
     def step(self) -> None:
         prices = {}
         # 1) Manage open positions first (selling is always allowed, even when halted)
         for pos in self.store.positions(self.market):
+            if self.stop_event.is_set():
+                return                            # stopping: the next start manages them again
             try:
                 self.manage_position(pos, prices)
             except Exception as e:
@@ -79,8 +94,11 @@ class MarketTrader:
 
         # 2) Update equity -> daily loss / drawdown limits
         eq = self.equity(prices)
+        record(self.store, self.market, "loop", f"Checked prices: {len(prices)} open position(s), "
+               f"account value {eq:,.2f} {self.broker.quote}")
         self.risk.update_equity(eq, self._now())
         self.store.record_equity(self.market, eq)
+        self.snapshot(eq)
 
         # 3) Look for new entries
         if self.store.get(PAUSE_FLAG) or self.store.get(STOP_FLAG):
@@ -89,7 +107,11 @@ class MarketTrader:
         if len(held) >= self.risk.config.max_open_trades:
             return                                # no room for another trade: nothing to check
         for symbol in self.symbols_fn():
-            if symbol in held or not self.tradeable(symbol):
+            if self.stop_event.is_set():
+                return                            # Stop pressed: don't check the remaining symbols
+            if len(self.store.positions(self.market)) >= self.risk.config.max_open_trades:
+                break                             # full: no need to check the rest
+            if symbol in held:
                 continue
             try:
                 self.maybe_enter(symbol, eq)
@@ -103,16 +125,18 @@ class MarketTrader:
         cached = self._signals.get(symbol)
         if cached and cached[0] == today:
             return cached[1], cached[2]
-        candles = self.broker.candles(symbol)
+        candles = self.broker.get_candles(symbol)
         want_in = False
         if len(candles) >= 50:
             strategy = load_strategy(self.strategy_name, **self.strategy_params)
             want_in = bool(strategy.target_exposure(candles).iloc[-1] > 0)
         self._signals[symbol] = (today, want_in, candles)
+        record(self.store, self.market, "signal", f"{symbol}: strategy {'wants IN' if want_in else 'says OUT'}"
+               + ("" if len(candles) >= 50 else " (not enough history yet)"), symbol)
         return want_in, candles
 
     def manage_position(self, pos: Position, prices: dict) -> None:
-        price = self.broker.price(pos.symbol)
+        price = self.broker.get_price(pos.symbol)
         prices[pos.symbol] = price
         want_in, candles = self.signal(pos.symbol)
         current_atr = float(atr(candles, self.risk.config.atr_period).iloc[-1]) if len(candles) else 0
@@ -121,7 +145,10 @@ class MarketTrader:
         if price > pos.highest:
             pos.highest = price
         if current_atr > 0:
-            pos.stop = self.risk.trailing_stop(pos.stop, pos.highest, current_atr)
+            new_stop = self.risk.trailing_stop(pos.stop, pos.highest, current_atr)
+            if new_stop > pos.stop:
+                record(self.store, self.market, "stop", f"{pos.symbol}: trailing stop moved up to {new_stop:.6g}", pos.symbol)
+                pos.stop = new_stop
         self.store.save_position(pos)
 
         if price <= pos.stop:
@@ -138,18 +165,19 @@ class MarketTrader:
             return
         if self.store.get(wait_key):             # stopped out: wait for a fresh signal
             return
-        price = self.broker.price(symbol)
+        price = self.broker.get_price(symbol)
         current_atr = float(atr(candles, self.risk.config.atr_period).iloc[-1])
         if math.isnan(current_atr):
             return
-        cash, _ = self.broker.balances()
+        cash = self.broker.get_balance()
         decision = self.risk.check_buy(price, current_atr, equity, cash,
                                        open_trades=len(self.store.positions(self.market)),
                                        rules=self.broker.rules(symbol), now=self._now())
         if not decision.approved:
             log.info("[%s] %s: buy not approved (%s)", self.market, symbol, decision.reason)
+            record(self.store, self.market, "skip", f"{symbol}: buy not approved ({decision.reason})", symbol)
             return
-        fill = self.broker.buy(symbol, decision, price)
+        fill = self.broker.place_order(symbol, "buy", decision, price)
         if not fill:
             return
         # Keep the stop the same distance below the real fill price
@@ -161,6 +189,7 @@ class MarketTrader:
         msg = (f"BUY {symbol} [{self.market}, {self.mode}]: {fill.qty:.8g} @ {fill.price:.8g} "
                f"(value {fill.qty * fill.price:.2f} {self.broker.quote}, stop {stop:.8g})")
         log.info(msg)
+        record(self.store, self.market, "order", msg, symbol)
         self.notify(msg)
 
     def exit(self, pos: Position, price: float, reason: str) -> None:
@@ -169,7 +198,7 @@ class MarketTrader:
             log.warning("[%s] %s: cannot sell (%s); forgetting the dust", self.market, pos.symbol, decision.reason)
             self.store.delete_position(self.market, pos.symbol)
             return
-        fill = self.broker.sell(pos.symbol, decision, price)
+        fill = self.broker.close_position(pos.symbol, decision, price)
         if not fill:
             return
         pnl = fill.qty * (fill.price - pos.entry_price) - fill.fee
@@ -180,12 +209,13 @@ class MarketTrader:
         msg = (f"SELL {pos.symbol} [{self.market}, {self.mode}] ({reason}): {fill.qty:.8g} @ "
                f"{fill.price:.8g}, P&L {pnl:+.2f} {self.broker.quote}")
         log.info(msg)
+        record(self.store, self.market, "order", msg, pos.symbol)
         self.notify(msg)
 
     # ------------------------------------------------------------------ startup
     def reconcile(self) -> None:
         """Compare what we THINK we hold with what the broker SAYS we hold (after a crash/restart)."""
-        cash, holdings = self.broker.balances()
+        cash, holdings = self.broker.get_balance(), self.broker.get_positions()
         for pos in self.store.positions(self.market):
             actual = holdings.get(pos.symbol, 0.0)
             if actual <= 0:
@@ -205,16 +235,17 @@ class MarketTrader:
 
 
 # ---------------------------------------------------------------------------- setup
-def build_traders(cfg: dict, store: StateStore, live: bool, notify=lambda t: None) -> list[MarketTrader]:
+def build_traders(cfg: dict, store: StateStore, live: bool, notify=lambda t: None) -> list:
     tc = cfg["trader"]
     mode = "live" if live else "paper"
-    strategy_params = {}
-    if tc["strategy"] == "regime":
-        from backtest.run import config_params
-        strategy_params = config_params(cfg, "regime")
     traders = []
     for market in tc["markets"]:
         mcfg = cfg["markets"][market]
+        if market == "forex":
+            forex = build_forex_trader(cfg, store, notify)
+            if forex:
+                traders.append(forex)
+            continue
         if market == "crypto":
             data = CcxtBroker(live=live)
             if tc.get("public_url"):
@@ -230,9 +261,54 @@ def build_traders(cfg: dict, store: StateStore, live: bool, notify=lambda t: Non
             data, store, tc.get("paper_capital", {}).get(market, 1000),
             mcfg["fee_pct"], mcfg["slippage_pct"], mcfg.get("min_fee", 0))
         risk = RiskManager(RiskConfig.from_config(cfg, mcfg["fee_pct"]), store, market=market)
-        traders.append(MarketTrader(market, broker, risk, store, tc["strategy"], strategy_params,
-                                    symbols_for(market, cfg, data), mode, notify))
+        trader = MarketTrader(market, broker, risk, store, tc["strategy"], strategy_params(cfg, tc["strategy"]),
+                              symbols_for(market, cfg, data), mode, notify)
+        trader.interval = int(tc.get("loop_seconds", 300))
+        traders.append(trader)
     return traders
+
+
+def strategy_params(cfg: dict, name: str, allow_short: bool = False) -> dict:
+    from backtest.run import config_params
+    from strategies import supports_short
+    params = config_params(cfg, name)
+    if allow_short and supports_short(name):
+        params["allow_short"] = True
+    return params
+
+
+def connect_mt5(cfg: dict, live_allowed: bool):
+    from bot.brokers.mt5_broker import Mt5Broker
+    m = cfg.get("mt5", {})
+    return Mt5Broker(live_allowed=live_allowed, magic=m.get("magic", 880088),
+                     suffix=m.get("symbol_suffix", ""), deviation=m.get("deviation_points", 20))
+
+
+def build_forex_trader(cfg: dict, store: StateStore, notify=lambda t: None):
+    """Forex through MetaTrader 5. If MT5 isn't available the other markets keep running."""
+    from bot.forex_trader import ForexTrader
+    mcfg = cfg["markets"]["forex"]
+    try:
+        broker = connect_mt5(cfg, live_allowed=is_forex_live())
+    except Exception as e:
+        log.error("[forex] MetaTrader 5 not available, Forex is skipped: %s", e)
+        notify(f"⚠️ Forex skipped: {e}")
+        return None
+    shorts = mcfg.get("allow_short", True)
+    if mcfg.get("mode", "swing") == "day":               # quick intraday trades, flat every evening
+        day = cfg.get("forex_day", {})
+        name = day.get("strategy", "sma_cross")
+        params = {**strategy_params(cfg, name, shorts), **day.get("params", {})}
+        risk = RiskManager(RiskConfig.from_config(cfg, market="forex_day"), store, market="forex")
+        log.info("[forex] DAY-TRADING mode: %s on %s candles, max %s trades/day", name, day.get("timeframe", "1h"),
+                 day.get("max_trades_per_day", 6))
+        return ForexTrader(broker, risk, store, name, params, mcfg["symbols"], cfg.get("forex_hours", {}), notify,
+                           timeframe=day.get("timeframe", "1h"), day_cfg=day, interval=day.get("loop_seconds", 60))
+    name = mcfg.get("strategy", cfg["trader"]["strategy"])
+    risk = RiskManager(RiskConfig.from_config(cfg, market="forex"), store, market="forex")
+    return ForexTrader(broker, risk, store, name, strategy_params(cfg, name, shorts),
+                       mcfg["symbols"], cfg.get("forex_hours", {}), notify,
+                       interval=cfg["trader"].get("loop_seconds", 300))
 
 
 def symbols_for(market: str, cfg: dict, data: Broker):
@@ -260,32 +336,43 @@ def symbols_for(market: str, cfg: dict, data: Broker):
     return get
 
 
-def kill_switch(cfg: dict, store: StateStore) -> None:
-    """Cancel all open orders, block new trades on every market and tell a running bot to stop."""
+def kill_switch(cfg: dict, store: StateStore, close_now: bool = True) -> None:
+    """Block new trades on every market and tell a running bot to stop. A running bot then
+    cancels its orders and closes its Forex positions itself. close_now=True (the --kill command
+    and kill_bot.bat) also does that right away from here, in case the bot isn't running."""
     store.set(STOP_FLAG, True)
-    live = is_live_trading()
     for market in cfg["trader"]["markets"]:
-        RiskManager(RiskConfig.from_config(cfg), store, market=market).kill()
-        if live:
+        RiskManager(RiskConfig.from_config(cfg, market=market), store, market=market).kill()
+    if close_now:
+        live = is_live_trading()
+        for market in cfg["trader"]["markets"]:
             try:
-                broker = CcxtBroker(live=True) if market == "crypto" else IbkrBroker(market, cfg["markets"][market])
-                log.warning("[%s] cancelled %d open orders", market, broker.cancel_all())
+                if market == "forex":
+                    from bot.forex_trader import ForexTrader
+                    broker = connect_mt5(cfg, live_allowed=True)     # closing is always allowed
+                    ForexTrader(broker, RiskManager(RiskConfig.from_config(cfg, market="forex"), store,
+                                                    market="forex"), store, "", {}, []).on_kill()
+                elif live:
+                    broker = CcxtBroker(live=True) if market == "crypto" else IbkrBroker(market, cfg["markets"][market])
+                    log.warning("[%s] cancelled %d open orders", market, broker.cancel_all())
             except Exception as e:
-                log.error("[%s] could not cancel orders: %s", market, e)
+                log.error("[%s] kill switch could not reach the broker: %s", market, e)
     log.warning("KILL SWITCH: all new trades blocked, bot stopping. "
                 "To trade again: python -m bot.risk --reset  and  python -m bot.trader --clear-stop")
 
 
 def print_status(cfg: dict, store: StateStore) -> None:
-    print(f"Mode: {'LIVE' if is_live_trading() else 'PAPER'} | stop requested: {bool(store.get(STOP_FLAG))}"
+    print(f"Crypto/stocks: {'LIVE' if is_live_trading() else 'PAPER'} | Forex: "
+          f"{'LIVE allowed' if is_forex_live() else 'DEMO only'} | stop requested: {bool(store.get(STOP_FLAG))}"
           f" | paused: {bool(store.get(PAUSE_FLAG))}")
     for market in cfg["trader"]["markets"]:
-        rm = RiskManager(RiskConfig.from_config(cfg), store, market=market)
-        paper = store.get(f"paper:{market}")
-        cash = f"{paper['cash']:.2f}" if paper else "(live: see exchange)"
-        print(f"\n[{market}] cash {cash} | new buys: {rm.blocked_reason(datetime.now(timezone.utc)) or 'allowed'}")
+        rm = RiskManager(RiskConfig.from_config(cfg, market=market), store, market=market)
+        acct = store.get(f"account:{market}") or {}
+        value = f"value {acct['equity']:.2f} {acct['currency']} ({acct['mode']})" if acct else "no data yet"
+        print(f"\n[{market}] {value} | new trades: {rm.blocked_reason(datetime.now(timezone.utc)) or 'allowed'}")
         for p in store.positions(market):
-            print(f"   {p.symbol:<12} qty {p.qty:.8g}  entry {p.entry_price:.8g}  stop {p.stop:.8g}")
+            side = "SHORT " if p.qty < 0 else ""
+            print(f"   {side}{p.symbol:<12} qty {abs(p.qty):.8g}  entry {p.entry_price:.8g}  stop {p.stop:.8g}")
     print("\nLast trades:")
     for t in store.trades(10):
         pnl = f" P&L {t['pnl']:+.2f}" if t["pnl"] is not None else ""
@@ -293,59 +380,124 @@ def print_status(cfg: dict, store: StateStore) -> None:
               f" ({t['reason']}){pnl}")
 
 
-def run(cfg: dict, store: StateStore, once: bool = False, notify=None) -> None:
-    from bot.telegram import Commands, Telegram, daily_summary
+TRADING_LOCK_PORT = 8799    # only one copy of the bot may trade at a time (start_bot.bat OR the app)
+
+
+def acquire_trading_lock():
+    """A local port works as a lock on every OS and is released automatically if the bot dies."""
+    lock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        lock.bind(("127.0.0.1", TRADING_LOCK_PORT))
+    except OSError:
+        lock.close()
+        return None
+    return lock
+
+
+def make_notify():
+    """Alerts go to every channel you set up (Telegram and/or WhatsApp)."""
+    from bot.telegram import Telegram
+    from bot.whatsapp import WhatsApp
+    tg, wa = Telegram.from_env(), WhatsApp.from_env()
+    channels = [c.send for c in (tg, wa) if c]
+
+    def notify(text):
+        for send in channels:
+            send(text)
+    return notify, tg, wa
+
+
+def run(cfg: dict, store: StateStore, once: bool = False, notify=None,
+        stop_event: threading.Event | None = None, status: dict | None = None) -> None:
+    """The main loop. stop_event: set it to stop after the current loop (the app's Stop button).
+    status: a dict the app reads (last loop time, open errors)."""
+    from bot.telegram import Commands, daily_summary
+    lock = acquire_trading_lock()
+    if lock is None:
+        log.error("Another copy of the bot is already trading (start_bot.bat or the WLM Trader app). "
+                  "Close it first.")
+        if status is not None:
+            status["error"] = "another copy of the bot is already trading"
+        return
+    stop_event = stop_event or threading.Event()
+    status = status if status is not None else {}
     live = is_live_trading()
     tc = cfg["trader"]
-    tg = Telegram.from_env() if notify is None else None
+    tg = wa = None
     if notify is None:
-        notify = tg.send if tg else (lambda text: None)
+        notify, tg, wa = make_notify()
     mode = "LIVE" if live else "PAPER"
-    log.info("=== Auto-Trader starting in %s mode | markets: %s | strategy: %s | Telegram: %s ===",
-             mode, ", ".join(tc["markets"]), tc["strategy"], "on" if tg else "off")
+    log.info("=== Auto-Trader starting | crypto/stocks: %s | markets: %s | strategy: %s | Telegram: %s | "
+             "WhatsApp: %s ===", mode, ", ".join(tc["markets"]), tc["strategy"], "on" if tg else "off",
+             "on" if wa else "off")
     if live:
         log.warning("LIVE TRADING: real orders will be placed.")
-    traders = build_traders(cfg, store, live, notify)
-    if tg and not once:
-        tg.start_polling(Commands(cfg, store, traders).handle)
-        notify(f"🤖 Bot started ({mode}): {', '.join(tc['markets'])}. Send /help for commands.")
-    for t in traders:
-        try:
-            t.reconcile()
-        except Exception as e:
-            log.error("[%s] reconcile failed: %s", t.market, e)
-
-    stop = {"now": False}
-    signal.signal(signal.SIGINT, lambda *_: stop.update(now=True))   # Ctrl+C = stop after this loop
-    while not stop["now"]:
-        if store.get(STOP_FLAG):
-            log.warning("Stop requested (kill switch). Exiting.")
-            break
+    try:
+        traders = build_traders(cfg, store, live, notify)
+        status["traders"] = traders                          # the app's live view reads prices through them
+        for t in traders:
+            t.stop_event = stop_event
+        if not traders:
+            log.error("No market could start (check config.yaml trader.markets and the logs above).")
+            status["error"] = "no market could start"
+            return
+        if tg and not once:
+            tg.start_polling(Commands(cfg, store, traders).handle)
+        if not once:
+            notify(f"🤖 Bot started ({mode}): {', '.join(t.market for t in traders)}.")
         for t in traders:
             try:
-                t.step()
-            except Exception as e:                       # never crash the whole bot
-                log.exception("[%s] loop error: %s", t.market, e)
-                notify(f"⚠️ Error in {t.market}: {e}")
-        # Once a day (first loop after midnight UTC): send yesterday's P&L summary
-        today = datetime.now(timezone.utc).date()
-        last = store.get("last_summary_day")
-        if last != today.isoformat():
-            if last:
-                from datetime import date
-                notify(daily_summary(store, tc["markets"], date.fromisoformat(last)))
-            store.set("last_summary_day", today.isoformat())
-        if once:
-            break
-        for _ in range(int(tc.get("loop_seconds", 300))):   # sleep in 1 s steps so Ctrl+C/kill work fast
-            if stop["now"] or store.get(STOP_FLAG):
+                t.reconcile()
+            except Exception as e:
+                log.error("[%s] reconcile failed: %s", t.market, e)
+
+        default_interval = int(tc.get("loop_seconds", 300))
+        next_step: dict[str, float] = {}                     # market -> when it runs next
+        if threading.current_thread() is threading.main_thread():
+            signal.signal(signal.SIGINT, lambda *_: stop_event.set())   # Ctrl+C = stop after this loop
+        while not stop_event.is_set():
+            if store.get(STOP_FLAG):
+                log.warning("Stop requested (kill switch). Closing Forex positions and exiting.")
+                for t in traders:
+                    try:
+                        t.on_kill()
+                    except Exception as e:
+                        log.error("[%s] kill switch failed: %s", t.market, e)
                 break
-            time.sleep(1)
-    log.info("Auto-Trader stopped.")
-    if not once:
-        notify("🛑 Bot stopped.")
-    if tg:
-        tg.stop()
+            for t in traders:
+                if time.monotonic() < next_step.get(t.market, 0):
+                    continue                                 # not this trader's turn yet
+                next_step[t.market] = time.monotonic() + getattr(t, "interval", default_interval)
+                try:
+                    t.step()
+                    status.pop(f"error:{t.market}", None)
+                except Exception as e:                       # never crash the whole bot
+                    log.exception("[%s] loop error: %s", t.market, e)
+                    status[f"error:{t.market}"] = str(e)
+                    notify(f"⚠️ Error in {t.market}: {e}")
+            status["last_loop"] = now_iso()
+            # Once a day (first loop after midnight UTC): send yesterday's P&L summary
+            today = datetime.now(timezone.utc).date()
+            last = store.get("last_summary_day")
+            if last != today.isoformat():
+                if last:
+                    from datetime import date
+                    notify(daily_summary(store, tc["markets"], date.fromisoformat(last)))
+                store.set("last_summary_day", today.isoformat())
+            if once:
+                break
+            # sleep in 1 s steps until the next trader is due, so Stop / Ctrl+C / kill work fast
+            while time.monotonic() < min(next_step.values(), default=0):
+                if stop_event.is_set() or store.get(STOP_FLAG):
+                    break
+                time.sleep(1)
+    finally:
+        lock.close()
+        log.info("Auto-Trader stopped.")
+        if not once:
+            notify("🛑 Bot stopped.")
+        if tg:
+            tg.stop()
 
 
 def main():

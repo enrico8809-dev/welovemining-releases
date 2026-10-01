@@ -1,11 +1,28 @@
-"""Logging to the console and to logs/bot.log, with a new file every day."""
+"""Logging to the console and to logs/bot.log, with a new file every day.
+Secrets from .env (keys, passwords, tokens) are blanked out of every log line."""
 import logging
+import os
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
 from bot.config import ROOT
 
 _configured = False
+SECRET_ENV = ("API_KEY", "API_SECRET", "MT5_LOGIN", "MT5_PASSWORD", "TELEGRAM_BOT_TOKEN",
+              "WHATSAPP_APIKEY", "APP_TOKEN")
+
+
+class RedactSecrets(logging.Filter):
+    """Replace any secret value from .env with *** before a line is written."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        secrets = [v for v in (os.getenv(name) for name in SECRET_ENV) if v and len(v) >= 4]
+        if secrets:
+            message = record.getMessage()
+            for value in secrets:
+                message = message.replace(value, "***")
+            record.msg, record.args = message, None
+        return True
 
 
 def get_logger(name: str = "bot", log_dir: str = "logs", level: str = "INFO",
@@ -23,6 +40,8 @@ def get_logger(name: str = "bot", log_dir: str = "logs", level: str = "INFO",
         file_handler.setFormatter(fmt)
         console = logging.StreamHandler()
         console.setFormatter(fmt)
+        for handler in (file_handler, console):
+            handler.addFilter(RedactSecrets())
 
         root = logging.getLogger()
         root.setLevel(level)

@@ -7,7 +7,9 @@ A strategy looks at candles and answers one question per candle:
 Rules (checked by tests/test_lookahead.py):
   * The value for candle i may only use candles 0..i (never future candles).
   * The backtester acts on it at the OPEN of candle i+1.
-  * Values are clipped to 0..1: spot only, no shorting, no leverage.
+  * Spot markets (crypto, stocks): values are clipped to 0..1 - no shorting, no leverage.
+  * Forex may also go SHORT: strategies that accept `allow_short=True` return -1.0 for
+    "fully short". Only the Forex backtester and trader ever switch this on.
 """
 import pandas as pd
 

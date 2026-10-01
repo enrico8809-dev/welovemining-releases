@@ -5,11 +5,17 @@ Personal trading bot for **crypto, Forex and stocks/ETFs/gold**.
 | Market | Live trading on | Backtest data from |
 |---|---|---|
 | Crypto | Binance (any CCXT exchange works, e.g. Luno, VALR) | the exchange, via CCXT |
-| Forex, stocks, ETFs, gold | Interactive Brokers (IBKR), cash account | Yahoo Finance (free) |
+| Stocks, ETFs | Interactive Brokers (IBKR), cash account | Yahoo Finance (free) |
+| Forex, gold | MetaTrader 5 (any MT5 broker), **demo account** by default | MT5 history (Yahoo as fallback) |
 
-**Safety first:** PAPER mode by default. Spot/cash only: no futures, margin, CFDs or leverage.
-Forex is traded **1:1** (a position is never bigger than the cash you have). Never withdraws funds.
-Give API keys **Read + Spot trading** permission only. Never enable withdrawals.
+**Safety first:** PAPER mode by default (Forex: an MT5 **demo** account). Crypto and stocks are
+spot/cash only: no futures, margin or leverage. Forex may go long or short, but total exposure is
+capped at **1:1** (open positions are never worth more than your account) and every Forex order
+carries its stop-loss to the broker. Never withdraws funds. Give API keys **Read + Spot trading**
+permission only. Never enable withdrawals.
+
+> **No bot can promise profit.** Backtests show what *would* have happened, not what will. The
+> safety limits keep losses small; they can't make a strategy win. Paper/demo trade for weeks first.
 
 ## Status
 
@@ -24,6 +30,8 @@ Give API keys **Read + Spot trading** permission only. Never enable withdrawals.
 | 7 | Auto-Trader (crypto via CCXT, stocks/Forex via Interactive Brokers) | ✅ done |
 | 8 | Telegram alerts and commands | ✅ done |
 | 9 | Local web dashboard | ✅ done |
+| + | Forex via MetaTrader 5 (long + short, lots, broker stops), WhatsApp alerts | ✅ done |
+| + | Forex day-trading mode; WLM Trader app for Windows + Android | ✅ done |
 
 ## Setup (Windows, one time)
 
@@ -48,10 +56,11 @@ python -m data.downloader                   (all markets)
 python -m data.downloader --market crypto   (or: forex, stocks)
 ```
 - **crypto**: 1d + 1h candles since 2021 from your exchange, plus each coin's minimum order size.
-- **forex / stocks**: daily candles since 2012 from Yahoo Finance (Forex also 1h, last ~2 years).
+- **stocks**: daily candles since 2012 from Yahoo Finance.
+- **forex**: your MT5 broker's history (Windows, MT5 running); otherwise Yahoo Finance as a fallback.
 
-Coins, currency pairs and stocks are listed per market in `config.yaml`. Yahoo names:
-`EURUSD=X` (Forex), `SPY` (S&P 500 ETF), `GLD` (gold ETF), `AAPL` (Apple).
+Coins, currency pairs and stocks are listed per market in `config.yaml`. Forex uses MT5 names
+(`EURUSD`, `XAUUSD` for gold); stocks use Yahoo names: `SPY` (S&P 500 ETF), `GLD` (gold ETF), `AAPL`.
 Later runs only add new candles. Only **closed** candles are saved.
 
 ## Backtest
@@ -74,6 +83,7 @@ sideways** periods). With `--strategy all` you get one comparison table. Saved t
 | `rsi_dip` | Buy oversold dips (RSI<30) only in an uptrend (above 200-day SMA) | uptrends | `buy_below=30 sell_above=55 trend_period=200 stop_loss_pct=8` |
 | `grid` | Buy lower / sell higher in steps inside the recent price range; sell all if it breaks down | sideways | `lookback=30 levels=5 stop_pct=5` |
 | `regime` | Picks a strategy per market regime; cash in downtrends (see below) | all | `up=sma_cross sideways=sma_cross` |
+| `breakout` | Buy a break above the 20-candle high, exit below the 10-candle low (Forex: also short) | trends | `entry=20 exit=10` |
 | `dca` | Base order + max 3 safety orders on dips, take profit, hard stop | mild dips in uptrends | `step_pct=5 max_safety=3 take_profit_pct=6 stop_loss_pct=15` |
 
 Each strategy uses at most 2 indicators (less overfitting).
@@ -192,7 +202,7 @@ fitted the past.
 |---|---|---|
 | Crypto | live Binance prices, simulated fills | real spot orders via your API keys |
 | Stocks, ETFs, gold | live Yahoo prices, simulated fills | real orders via Interactive Brokers |
-| Forex | same (only XXX/USD pairs: with USD cash you can't buy USD/JPY without borrowing) | Interactive Brokers, 1:1 |
+| Forex, gold | MT5 **demo** account (real broker, play money) | MT5 real account, only with `FOREX_LIVE_TRADING=true` |
 
 On start-up the bot **reconciles** its saved positions with the exchange (e.g. after a crash or
 if you sold something by hand). Paper balances start at 1000 per market (`trader.paper_capital`).
@@ -203,7 +213,7 @@ if you sold something by hand). Paper balances start at 1000 per market (`trader
 |---|---|
 | `start_bot.bat` | starts the bot (restarts it after a crash; stops for good after the kill switch) |
 | `status_bot.bat` | positions, cash, halts and last trades |
-| `kill_bot.bat` | **KILL SWITCH**: cancels open orders, blocks new trades, stops the bot |
+| `kill_bot.bat` | **KILL SWITCH**: cancels open orders, closes Forex positions, blocks new trades, stops the bot |
 
 Or in the terminal: `python -m bot.trader` (`--once`, `--status`, `--kill`, `--clear-stop`).
 After the kill switch: `python -m bot.risk --reset` and `python -m bot.trader --clear-stop`.
@@ -211,9 +221,79 @@ After the kill switch: `python -m bot.risk --reset` and `python -m bot.trader --
 ### Going live (only when you're happy with weeks of paper results)
 1. **Crypto:** create a Binance API key with **Read + Spot trading only** (never withdrawals;
    restrict it to your home IP). Put it in `.env` as `API_KEY` / `API_SECRET`.
-2. **Stocks/Forex:** install TWS or IB Gateway, log in (try the **paper** account first: port
+2. **Stocks:** install TWS or IB Gateway, log in (try the **paper** account first: port
    7497), enable the API (Settings → API → "Enable ActiveX and Socket Clients").
 3. Keep `MAX_ORDER_USDT` small at first, then set `LIVE_TRADING=true` in `.env`.
+4. **Forex:** see below; it has its own switch (`FOREX_LIVE_TRADING`).
+
+## Forex via MetaTrader 5
+
+`bot/forex_trader.py` trades EURUSD, GBPUSD, USDJPY, AUDUSD, USDCHF, USDCAD, USDZAR and gold
+(XAUUSD) through the MetaTrader 5 terminal on your PC (`bot/brokers/mt5_broker.py`).
+
+**Setup (one time)**
+1. Open a **demo** account with an MT5 broker and install its MetaTrader 5 terminal. In South
+   Africa pick a broker regulated by the **FSCA** (check it on the FSCA website before depositing).
+2. In MT5: log in, then **Tools → Options → Expert Advisors → tick "Allow algorithmic trading"**,
+   and press the **Algo Trading** button in the toolbar so it's green.
+3. In `.env`: `MT5_LOGIN`, `MT5_PASSWORD`, `MT5_SERVER` (shown in MT5 under File → Login). Leave
+   `FOREX_LIVE_TRADING=false`. Run `setup.bat` again to install the `MetaTrader5` package.
+4. Download your broker's history and symbol specs: `python -m data.forex_data`.
+5. Start the bot as usual. If MT5 isn't running, Forex is skipped and the other markets carry on.
+
+**How it trades**
+- **Long and short.** The `regime` strategy buys in an uptrend and goes **short only in a
+  downtrend** (it profits when the price falls).
+- **Size in lots** from the stop distance: if the stop is hit you lose about 1% of the account.
+- **1:1 cap:** all open Forex positions together are never worth more than your account
+  (`forex_risk: max_leverage: 1`). Your broker's 1:500 leverage is never used.
+  At 1:1 the smallest EURUSD position (0.01 lot) needs about **1,200 USD** in the account.
+- **Stop-loss at the broker** with every order: it works even if your PC is off.
+  The trailing stop is moved at the broker too.
+- **Market hours:** no new trades on weekends, in the first hour after the Sunday open, the last
+  hour before the Friday close, or around news you list in `forex_hours: news_events`.
+- Only touches its own trades (magic number `880088`); your manual MT5 trades are left alone.
+- **Safety:** on a **real** MT5 account the bot refuses to trade unless `FOREX_LIVE_TRADING=true`.
+
+**Backtest:** `python -m backtest.run --market forex --strategy regime` (spread, commission and
+overnight swap included; reported separately from crypto). Add `--params allow_short=false` to
+compare with long-only.
+
+Backtest 2012-2026 on daily candles (Yahoo prices with *estimated* spreads/swaps, 10,000 USD, 1:1):
+
+| | EURUSD | GBPUSD | USDJPY | AUDUSD | USDCHF | USDCAD | USDZAR | Gold |
+|---|---|---|---|---|---|---|---|---|
+| long + short | -4% | +13% | +23% | -13% | -21% | +5% | -20% | +2% |
+| long only | -12% | -5% | +41% | -12% | +2% | +26% | -23% | 0% |
+| buy & hold | -12% | -15% | +51% | -31% | -12% | +28% | +51% | +167% |
+
+At 1:1 these strategies earn very little on Forex over 14 years, and shorting helped on some pairs
+and hurt on others. Re-run with your broker's real data (`python -m data.forex_data`) before
+judging, and demo trade first.
+
+### Day-trading mode (quick trades)
+
+Set `markets.forex.mode: day` (or switch it in the app). The bot then:
+- trades **hourly candles** (`forex_day: timeframe`, also 15m/5m with MT5 data) during the London +
+  New York session (07:00-20:00 UTC), checking every minute;
+- makes at most `max_trades_per_day` (6) new trades per day;
+- **closes everything an hour before the 17:00 New York rollover**: no overnight swap, nothing over
+  the weekend;
+- still risks ~1% per trade at a broker stop-loss, with total exposure up to **3:1** (tight stops
+  need bigger positions; swing mode stays 1:1).
+
+Backtest: `python -m backtest.run --market forex --timeframe 1h --strategy sma_cross`.
+Two years of hourly data (Yahoo, estimated spreads), average over the 8 symbols:
+`sma_cross` +3%, `rsi_dip` 0%, `regime` 0%, `breakout` -3%; ~1 trade per day per symbol, and
+AUDUSD, USDCAD and USDZAR hit the 20% drawdown halt with most strategies. **No quick-trade strategy
+has shown a reliable edge yet** - most day traders lose money to spreads. Demo trade it first.
+
+## WhatsApp alerts
+
+Every trade, error and the daily summary can also go to your **WhatsApp** (free, via CallMeBot;
+send-only, controls are in Telegram / the app). Setup: see the top of `bot/whatsapp.py`
+(about 2 minutes), then put `WHATSAPP_PHONE` and `WHATSAPP_APIKEY` in `.env` and test with
+`python -m bot.whatsapp --test`.
 
 ## Telegram (Phase 8)
 
@@ -223,11 +303,11 @@ The bot sends you **every trade, errors and a daily P&L summary**, and obeys the
 | Command | What it does |
 |---|---|
 | `/status` | mode, pause/stop state, halts, number of positions |
-| `/balance` | cash and account value per market |
+| `/balance` | account value per market (crypto, stocks, Forex) and combined |
 | `/positions` | open positions with current P&L and stop |
 | `/trades` | last 10 trades |
 | `/pause` / `/resume` | stop / allow new trades (stops keep protecting open positions) |
-| `/stop` | **KILL SWITCH** (cancel open orders, block new trades, stop the bot) |
+| `/stop` | **KILL SWITCH** (cancel open orders, close Forex positions, block new trades, stop the bot) |
 
 Setup (one time):
 1. In Telegram, open **@BotFather** → `/newbot` → copy the **token**.
@@ -236,6 +316,20 @@ Setup (one time):
    `"chat":{"id":`.
 3. In `.env`: `TELEGRAM_BOT_TOKEN=...` and `TELEGRAM_CHAT_ID=...`
 4. Test: `python -m bot.telegram --test`. Then start the bot as usual; Telegram runs inside it.
+
+## WLM Trader app (Windows + Android)
+
+The easiest way to run and control the bot: **`wlm-trader-app/`** (see its README). The Windows
+app starts the bot for you, and every setting, key, backtest and control (start, pause, stop, kill
+switch) is in the app; the Android app shows the same screens on your phone through Tailscale.
+
+Its **Live** screen shows real-time prices, open profit/loss and the bot's activity feed
+(`bot/activity.py`: every check, signal, skipped trade, order and stop move, in plain words).
+
+Behind it is `bot/server.py` (`python -m bot.server`): a JSON API on `127.0.0.1:8765` protected by
+`APP_TOKEN` in `.env` (created automatically). Settings changed in the app are saved to
+`data/app_settings.json` (on top of `config.yaml`). Keys and passwords can only be changed from the
+PC itself. Only one copy of the bot may trade at a time (app or `start_bot.bat`).
 
 ## Dashboard (Phase 9)
 
@@ -250,10 +344,10 @@ cannot trade) and only listens on your own PC.
 | Market | Fee per side | Minimum fee | Slippage |
 |---|---|---|---|
 | Crypto (Binance) | 0.1% | – | 0.05% |
-| Forex (IBKR) | 0.002% | 2 USD per order | 0.01% |
+| Forex (MT5) | spread (from MT5 history) + commission per lot + overnight swap | – | – |
 | Stocks/ETFs (IBKR tiered) | 0.05% | 0.35 USD per order | 0.02% |
 
-Minimum fees matter on small accounts: a 2 USD fee on a 100 USD Forex order is 2%.
+Minimum fees matter on small accounts: a 0.35 USD fee on a 10 USD stock order is 3.5%.
 
 ### What the backtester guarantees
 - **Costs:** fee (with minimum per order) + slippage on every buy and sell; buy-and-hold pays them too.
@@ -273,9 +367,10 @@ Minimum fees matter on small accounts: a 2 USD fee on a 100 USD Forex order is 2
 - **Crypto: Binance.** Lowest fees (0.1%, less with BNB), the most coins and liquidity, and the
   best-supported API. Alternatives that are FSCA-licensed in South Africa with ZAR deposits:
   **VALR** and **Luno** (both work via CCXT: set `EXCHANGE=valr` or `EXCHANGE=luno`).
-- **Forex, stocks, ETFs, gold: Interactive Brokers.** Accepts South African residents, low fees,
-  150+ markets, an official API and a free **paper trading** account. Open a **cash** account
-  (not margin), so leverage is impossible at the broker too. Connection comes in Phase 7.
+- **Stocks, ETFs: Interactive Brokers.** Accepts South African residents, low fees, an official
+  API and a free **paper trading** account. Open a **cash** account (not margin).
+- **Forex, gold: any MetaTrader 5 broker** (FSCA-regulated if you're in South Africa). Start with a
+  **demo** account; the bot caps exposure at 1:1 whatever leverage the broker offers.
 
 ## Run the tests
 
@@ -286,10 +381,11 @@ python -m pytest -q
 ## Folder layout
 
 ```
-bot/          core: config, logging, exchange, regime, risk, scanner, broker, trader, storage (SQLite)
+bot/          core: config, logging, exchange, regime, risk, scanner, trader, forex_trader, storage (SQLite)
+bot/brokers/  one interface, many brokers: ccxt (crypto), ibkr (stocks), mt5 (Forex), paper
 strategies/   one file per strategy (drop in a new file and it's picked up automatically)
-backtest/     engine.py (simulator), metrics.py (numbers), run.py (command line report)
-data/         downloader.py (crypto via CCXT), yahoo.py (Forex/stocks); cache in data/cache/
+backtest/     engine.py (spot simulator), forex_engine.py (Forex), metrics.py, run.py (report)
+data/         downloader.py (crypto via CCXT), yahoo.py (stocks), forex_data.py (MT5); cache in data/cache/
 tests/        unit tests
 logs/         bot.log, a new file each day, kept 30 days
 config.yaml   all settings (no secrets)   .env  your keys (never commit or share)

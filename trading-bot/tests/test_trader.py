@@ -3,7 +3,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from bot.broker import Broker, OrderRejected, PaperBroker
+from bot.brokers.base import Broker, OrderRejected
+from bot.brokers.paper import PaperBroker
 from bot.risk import Decision, RiskConfig, RiskManager
 from bot.rules import MarketRules
 from bot.storage import Position, StateStore
@@ -22,10 +23,10 @@ class FakeData(Broker):
         closes = list(np.linspace(80, 100, 120))
         self.candle_data = make_candles(closes, start="2026-01-01", spread=0.02)
 
-    def candles(self, symbol, timeframe="1d", limit=400):
+    def get_candles(self, symbol, timeframe="1d", limit=400):
         return self.candle_data
 
-    def price(self, symbol):
+    def get_price(self, symbol):
         return self.prices[symbol]
 
     def rules(self, symbol):
@@ -61,7 +62,7 @@ def test_buys_when_strategy_says_in_and_risk_approves(setup):
     trader.step()
     positions = store.positions("crypto")
     assert len(positions) == 1 and positions[0].symbol == "AAA/USDT"
-    cash, holdings = broker.balances()
+    cash, holdings = broker.get_balance(), broker.get_positions()
     assert holdings["AAA/USDT"] == positions[0].qty
     assert cash < 1000 and cash > 700                  # max 25% of the account in one trade
     assert positions[0].stop < 100                     # stop-loss set below the entry
@@ -140,17 +141,17 @@ def test_pause_and_stop_flags_block_new_buys(setup):
 def test_orders_without_risk_approval_are_refused(setup):
     _, _, _, broker, _ = setup
     with pytest.raises(OrderRejected):
-        broker.buy("AAA/USDT", Decision(False, "nope", amount=1), 100)
+        broker.place_order("AAA/USDT", "buy", Decision(False, "nope", amount=1), 100)
     with pytest.raises(OrderRejected):
-        broker.buy("AAA/USDT", "buy 1 please", 100)
+        broker.place_order("AAA/USDT", "buy", "buy 1 please", 100)
 
 
 def test_paper_fills_pay_fees_and_slippage():
     store = StateStore(":memory:")
     broker = PaperBroker(FakeData(), store, start_cash=1000, fee_pct=0.1, slippage_pct=0.1)
-    fill = broker.buy("AAA/USDT", Decision(True, "ok", amount=1), 100)
+    fill = broker.place_order("AAA/USDT", "buy", Decision(True, "ok", amount=1), 100)
     assert fill.price == pytest.approx(100.1) and fill.fee == pytest.approx(0.1001)
-    assert broker.balances()[0] == pytest.approx(1000 - 100.1 - 0.1001)
+    assert broker.get_balance() == pytest.approx(1000 - 100.1 - 0.1001)
 
 
 def test_reconcile_fixes_positions_after_a_restart(setup):
@@ -166,14 +167,6 @@ def test_reconcile_fixes_positions_after_a_restart(setup):
     assert positions["AAA/USDT"].qty == 1.5
 
 
-def test_forex_only_buys_pairs_quoted_in_usd(setup):
-    trader, *_ = setup
-    trader.market = "forex"
-    assert trader.tradeable("EURUSD=X")
-    assert not trader.tradeable("USDJPY=X")            # would need yen we don't have (no borrowing)
-    assert not trader.tradeable("USDZAR=X")
-
-
 def test_positions_survive_a_restart(tmp_path):
     db = tmp_path / "bot.db"
     store = StateStore(db)
@@ -183,10 +176,7 @@ def test_positions_survive_a_restart(tmp_path):
     assert again.positions("crypto")[0].highest == 110
 
 
-def test_ibkr_contracts():
-    pytest.importorskip("ib_async")
-    from bot.broker import ibkr_contract
-    fx = ibkr_contract("EURUSD=X", "forex")
-    assert (fx.symbol, fx.currency, fx.secType) == ("EUR", "USD", "CASH")
-    stock = ibkr_contract("SPY", "stocks")
-    assert (stock.symbol, stock.exchange, stock.currency) == ("SPY", "SMART", "USD")
+def test_spot_brokers_never_open_a_short(setup):
+    _, _, _, broker, _ = setup
+    with pytest.raises(OrderRejected, match="spot only"):
+        broker.place_order("AAA/USDT", "sell", Decision(True, "ok", amount=1), 100)

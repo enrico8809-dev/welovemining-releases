@@ -1,6 +1,7 @@
 """Trend-following: moving-average crossover on daily candles.
 
 In the coin when the fast SMA is above the slow SMA, otherwise in USDT.
+With allow_short=True (Forex only): short when the fast SMA is below the slow SMA.
 Indicators used: 2 (fast SMA, slow SMA).
 """
 import pandas as pd
@@ -12,11 +13,12 @@ class SmaCross(Strategy):
     name = "sma_cross"
     timeframe = "1d"
 
-    def __init__(self, fast: int = 10, slow: int = 40, stop_loss_pct: float | None = None):
+    def __init__(self, fast: int = 10, slow: int = 40, stop_loss_pct: float | None = None,
+                 allow_short: bool = False):
         if fast >= slow:
             raise ValueError("fast must be smaller than slow")
         super().__init__(fast=fast, slow=slow, stop_loss_pct=stop_loss_pct)
-        self.fast, self.slow = fast, slow
+        self.fast, self.slow, self.allow_short = fast, slow, allow_short
         self.stop_loss_pct = stop_loss_pct
 
     def target_exposure(self, candles: pd.DataFrame) -> pd.Series:
@@ -25,4 +27,7 @@ class SmaCross(Strategy):
         fast = close.rolling(self.fast).mean()
         slow = close.rolling(self.slow).mean()
         # Before 'slow' candles exist the SMA is NaN -> comparison is False -> stay in USDT
-        return (fast > slow).astype(float)
+        exposure = (fast > slow).astype(float)
+        if self.allow_short:
+            exposure -= (fast < slow).astype(float)
+        return exposure

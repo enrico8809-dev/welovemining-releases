@@ -1,0 +1,152 @@
+name: WLM Trader — bot tests, Windows and Android
+
+# Tests the trading bot, then builds the WLM Trader app twice from the same screens:
+# a Windows installer (Electron, with the bot inside) and an Android APK (Capacitor).
+# Pull requests build both as downloadable artifacts; pushes to main also publish them to
+# the `trader-latest` release. No accounts and no secrets: the installer is unsigned (Windows
+# SmartScreen warns on first run) and the APK is debug-signed for sideloading.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "wlm-trader-app/**"
+      - "trading-bot/**"
+      - ".github/workflows/wlm-trader-app.yml"
+  pull_request:
+    paths:
+      - "wlm-trader-app/**"
+      - "trading-bot/**"
+      - ".github/workflows/wlm-trader-app.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  bot-tests:
+    name: Trading bot tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: trading-bot
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -r requirements.txt
+      - name: Test
+        run: python -m pytest -q
+
+  app-check:
+    name: App typecheck and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: wlm-trader-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install
+        run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit tests
+        run: npm test
+      - name: Build screens
+        run: npm run build:renderer
+
+  windows:
+    name: Build WLM-Trader-Setup.exe
+    needs: [bot-tests, app-check]
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: wlm-trader-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install
+        run: npm ci
+      - name: Build and package
+        run: npm run package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WLM-Trader-Setup
+          path: wlm-trader-app/release/WLM-Trader-Setup.exe
+          if-no-files-found: error
+      - name: Publish release
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: WLM Trader (latest)
+          tag_name: trader-latest
+          target_commitish: ${{ github.sha }}
+          body: |
+            **WLM Trader**: control your WeLoveMining trading bot from Windows and Android.
+
+            **Windows:** download `WLM-Trader-Setup.exe` and run it (installs for your user, no admin
+            password). It's not code-signed, so Windows shows "Windows protected your PC" the first
+            time: choose **More info** then **Run anyway**. Python 3.11+ must be installed (python.org).
+
+            **Android:** download `WLM-Trader.apk` on the phone and tap it (allow "install unknown
+            apps"). Switch Tailscale on, then pair with the code from Settings → Phone on the PC.
+
+            Paper/demo trading by default. No bot can promise profit.
+          files: wlm-trader-app/release/WLM-Trader-Setup.exe
+          fail_on_unmatched_files: true
+
+  android:
+    name: Build WLM-Trader.apk
+    needs: [bot-tests, app-check]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: wlm-trader-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          # `tools` was retired by Google; asking for it makes sdkmanager fail
+          packages: platform-tools
+      - name: Install
+        run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+      - name: Build screens and copy them into the Android project
+        run: npm run android:sync
+      - name: Build APK
+        working-directory: wlm-trader-app/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --stacktrace --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk ../WLM-Trader.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WLM-Trader-apk
+          path: wlm-trader-app/WLM-Trader.apk
+          if-no-files-found: error
+      - name: Publish release
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: trader-latest
+          target_commitish: ${{ github.sha }}
+          files: wlm-trader-app/WLM-Trader.apk
+          fail_on_unmatched_files: true

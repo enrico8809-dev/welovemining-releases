@@ -12,6 +12,8 @@ What it does
     (python -m bot.risk --reset). Restarting the bot does NOT clear it.
   * Cooldown after a losing streak, and a pause after too many stop-losses in a short time.
   * Kill switch: blocks all new trades until reset.
+  * Forex (check_forex_entry): size in LOTS from the stop distance, a stop-loss on every trade,
+    and total exposure capped at max_leverage x the account (default 1 = no leverage).
 
 Selling to CLOSE a position is always allowed (it reduces risk); only new buys are blocked.
 The Risk Manager's state is saved in SQLite, so it survives restarts.
@@ -24,7 +26,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 
 from bot.logger import get_logger
-from bot.rules import MarketRules
+from bot.rules import LotRules, MarketRules
 
 log = get_logger("risk")
 
@@ -47,13 +49,21 @@ class RiskConfig:
     stops_window_hours: float = 24.0   # ... within this window ...
     stops_pause_hours: float = 48.0    # ... = pause for this long
     fee_pct: float = 0.1               # used to leave room for the fee when spending cash
+    max_leverage: float = 1.0          # Forex: total exposure <= this x the account (1 = no leverage)
+    max_lots: float = 1.0              # Forex: hard cap per order, in lots
 
     @classmethod
-    def from_config(cls, cfg: dict, fee_pct: float = 0.1) -> "RiskConfig":
-        """Build from the `risk:` section of config.yaml plus MAX_ORDER_USDT from .env."""
-        values = {k: v for k, v in (cfg.get("risk") or {}).items() if k in cls.__dataclass_fields__}
+    def from_config(cls, cfg: dict, fee_pct: float = 0.1, market: str = "") -> "RiskConfig":
+        """Build from the `risk:` section of config.yaml (+ `forex_risk:` for Forex)
+        plus MAX_ORDER_USDT from .env (crypto and stocks)."""
+        values = dict(cfg.get("risk") or {})
+        if market in ("forex", "forex_day"):
+            values.update(cfg.get("forex_risk") or {})
+        if market == "forex_day":                      # day-trading mode: its own stops and cap
+            values.update(cfg.get("forex_day") or {})
+        values = {k: v for k, v in values.items() if k in cls.__dataclass_fields__}
         max_order = os.getenv("MAX_ORDER_USDT")
-        if max_order:
+        if max_order and not market.startswith("forex"):
             values["max_order_value"] = float(max_order)
         return cls(fee_pct=fee_pct, **values)
 
@@ -63,8 +73,9 @@ class Decision:
     """The Risk Manager's answer. Only orders with approved=True may be sent."""
     approved: bool
     reason: str
-    amount: float = 0.0          # coins to buy/sell (already rounded to the exchange step)
+    amount: float = 0.0          # coins / shares / lots (already rounded to the exchange step)
     stop_price: float = 0.0      # initial stop-loss for a new position
+    side: str = "buy"            # "buy" (long) or "sell" (short, Forex only)
 
 
 @dataclass
@@ -221,9 +232,65 @@ class RiskManager:
             return Decision(False, "amount below the exchange minimum (dust)")
         return Decision(True, "approved", amount=amount)
 
-    def trailing_stop(self, current_stop: float, highest_price: float, atr: float) -> float:
-        """New stop = highest price since entry - trailing_atr_mult x ATR. It only ever moves UP."""
-        return max(current_stop, highest_price - self.config.trailing_atr_mult * atr)
+    def trailing_stop(self, current_stop: float, best_price: float, atr: float, side: str = "buy") -> float:
+        """Long: highest price since entry - trailing_atr_mult x ATR, only ever moves UP.
+        Short: lowest price since entry + trailing_atr_mult x ATR, only ever moves DOWN."""
+        if side == "sell":
+            return min(current_stop, best_price + self.config.trailing_atr_mult * atr)
+        return max(current_stop, best_price - self.config.trailing_atr_mult * atr)
+
+    # ----------------------------------------------------------------- Forex
+    def check_forex_entry(self, side: str, price: float, atr: float, equity: float, open_exposure: float,
+                          open_trades: int, lot_rules: LotRules, to_account: float | None, now: datetime,
+                          spread: float = 0.0) -> Decision:
+        """Approve (and size, in lots) a new Forex position, or reject it with a reason.
+
+        side           "buy" (long) or "sell" (short)
+        price          entry price (ask for a buy, bid for a sell)
+        open_exposure  value of the open Forex positions, in the account currency
+        to_account     account-currency value of 1 unit of the pair's profit currency
+        spread         current ask - bid; the stop must clear it and the broker's stop level
+        """
+        c = self.config
+        blocked = self.blocked_reason(now)
+        if blocked:
+            return Decision(False, blocked)
+        if side not in ("buy", "sell"):
+            return Decision(False, f"unknown side {side!r}")
+        if open_trades >= c.max_open_trades:
+            return Decision(False, f"max open trades ({c.max_open_trades}) reached")
+        if not (price > 0 and atr > 0 and equity > 0):
+            return Decision(False, "missing price/ATR/equity data")
+        if not to_account:
+            return Decision(False, f"cannot convert {lot_rules.profit_currency} to the account currency")
+
+        # Stop-loss: ATR based, but never closer than the broker allows (stop level + spread)
+        distance = self.stop_distance(price, atr)
+        distance = max(distance, lot_rules.stops_level * lot_rules.point + spread + lot_rules.point)
+        stop = lot_rules.round_price(price - distance if side == "buy" else price + distance)
+        distance = abs(price - stop)
+
+        # Size: lose about risk_per_trade_pct of the account if the stop is hit ...
+        loss_per_lot = distance * lot_rules.contract_size * to_account
+        lots = equity * c.risk_per_trade_pct / 100 / loss_per_lot
+        # ... but total exposure may never exceed max_leverage x the account (1 = no leverage)
+        exposure_per_lot = price * lot_rules.contract_size * to_account
+        room = equity * c.max_leverage - open_exposure
+        if room <= 0:
+            return Decision(False, f"exposure cap reached ({c.max_leverage:g}:1)")
+        lots = lot_rules.round_lots(min(lots, room / exposure_per_lot, c.max_lots))
+        if lots < lot_rules.volume_min:
+            need = lot_rules.volume_min * exposure_per_lot / c.max_leverage
+            return Decision(False, f"position too small: {lot_rules.volume_min:g} lot needs about "
+                                   f"{need:,.0f} of free exposure at {c.max_leverage:g}:1")
+        return Decision(True, "approved", amount=lots, stop_price=stop, side=side)
+
+    def check_forex_close(self, lots: float, lot_rules: LotRules) -> Decision:
+        """Closing is always allowed; the size just has to fit the broker's lot step."""
+        lots = round(abs(lots), 8)
+        if lots < lot_rules.volume_min:
+            return Decision(False, "position below the broker's minimum lot")
+        return Decision(True, "approved", amount=lots)
 
 
 def main():
@@ -240,7 +307,8 @@ def main():
     store = StateStore()
     markets = list(cfg["markets"]) if args.market == "all" else [args.market]
     for market in markets:
-        rm = RiskManager(RiskConfig.from_config(cfg, cfg["markets"][market]["fee_pct"]), store, market=market)
+        mcfg = cfg["markets"][market]
+        rm = RiskManager(RiskConfig.from_config(cfg, mcfg.get("fee_pct", 0.1), market), store, market=market)
         if args.reset:
             rm.reset(args.equity)
             print(f"[{market}] Risk Manager reset.")

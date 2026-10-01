@@ -94,9 +94,8 @@ def regime_report(candles: pd.DataFrame, regime: pd.Series, horizon: int = 30) -
 
 
 def main():
-    from backtest.run import source_of
-    from bot.config import ROOT, load_config
-    from data.downloader import load_candles
+    from backtest.run import load_market_candles
+    from bot.config import load_config
 
     cfg = load_config()
     parser = argparse.ArgumentParser(description="Show the market regime per symbol")
@@ -109,7 +108,7 @@ def main():
     params = {k: v for k, v in cfg.get("regime", {}).items() if k != "routes"}
     for symbol in args.symbols or market["symbols"]:
         try:
-            candles = load_candles(ROOT / cfg["data"]["cache_dir"], source_of(market), symbol, args.timeframe)
+            candles = load_market_candles(cfg, args.market, symbol, args.timeframe)
         except FileNotFoundError as e:
             print(f"\n{symbol}: {e}")
             continue

@@ -96,7 +96,9 @@ def test_positions_and_balance(commands):
     store.set("paper:crypto", {"cash": 500.0, "holdings": {"BTC/USDT": 0.01}})
     store.record_equity("crypto", 1000.0)
     assert "BTC/USDT" in cmd.handle("/positions")
-    assert "value 1000.00" in cmd.handle("/balance") and "cash 500.00" in cmd.handle("/balance")
+    balance = cmd.handle("/balance")
+    assert "crypto [paper]: 1,000.00 USDT" in balance and "cash 500.00" in balance
+    assert "Combined: 1,000.00 USD" in balance
     assert cmd.handle("/nonsense").startswith("Unknown")
 
 
