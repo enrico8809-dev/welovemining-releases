@@ -2,7 +2,9 @@
 
     trending up   -> `up` strategy        (default: sma_cross)
     sideways      -> `sideways` strategy  (default: sma_cross; grid and cash also possible)
-    trending down -> stay in cash (0%)
+    trending down -> stay in cash (0%); with allow_short=True (Forex only): the `up`
+                     strategy's SHORT signals (trend-following short in a downtrend)
+Longs are only taken in up/sideways regimes, shorts only in a downtrend.
 Use "cash" as the strategy name to hold nothing in that regime too.
 
 The sub-strategies run on the same candles; for each candle we take the exposure of
@@ -18,12 +20,18 @@ class Regime(Strategy):
     name = "regime"
     timeframe = "1d"
 
-    def __init__(self, up: str = "sma_cross", sideways: str = "sma_cross", **regime_params):
+    def __init__(self, up: str = "sma_cross", sideways: str = "sma_cross", allow_short: bool = False,
+                 **regime_params):
         super().__init__(up=up, sideways=sideways, **regime_params)
-        from strategies import load_strategy       # imported here to avoid a circular import
-        # "cash" = hold nothing in that regime
-        self.up = None if up == "cash" else load_strategy(up)
-        self.sideways = None if sideways == "cash" else load_strategy(sideways)
+        from strategies import load_strategy, supports_short   # here to avoid a circular import
+
+        def load(name):
+            if name == "cash":                     # "cash" = hold nothing in that regime
+                return None
+            return load_strategy(name, allow_short=True) if allow_short and supports_short(name) \
+                else load_strategy(name)
+        self.allow_short = allow_short
+        self.up, self.sideways = load(up), load(sideways)
         self.regime_params = regime_params
         self.stop_loss_pct = None
 
@@ -33,7 +41,7 @@ class Regime(Strategy):
         up = self.up.target_exposure(candles) if self.up else zero
         side = self.sideways.target_exposure(candles) if self.sideways else zero
         exposure = pd.Series(0.0, index=candles.index)
-        exposure[regime == UP] = up[regime == UP]
-        exposure[regime == SIDEWAYS] = side[regime == SIDEWAYS]
-        exposure[regime == DOWN] = 0.0
+        exposure[regime == UP] = up[regime == UP].clip(lower=0)
+        exposure[regime == SIDEWAYS] = side[regime == SIDEWAYS].clip(lower=0)
+        exposure[regime == DOWN] = up[regime == DOWN].clip(upper=0) if self.allow_short else 0.0
         return exposure.fillna(0.0)

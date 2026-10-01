@@ -29,3 +29,9 @@ def is_live_trading() -> bool:
     """PAPER mode is the default. Live only when LIVE_TRADING=true in .env."""
     load_dotenv(ROOT / ".env")
     return env_bool("LIVE_TRADING", default=False)
+
+
+def is_forex_live() -> bool:
+    """Forex uses an MT5 DEMO account by default. A REAL account only when FOREX_LIVE_TRADING=true."""
+    load_dotenv(ROOT / ".env")
+    return env_bool("FOREX_LIVE_TRADING", default=False)

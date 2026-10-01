@@ -23,7 +23,10 @@ import signal
 import time
 from datetime import datetime, timezone
 
-from bot.broker import Broker, CcxtBroker, IbkrBroker, PaperBroker, YahooData
+from bot.brokers.base import Broker
+from bot.brokers.ccxt_broker import CcxtBroker
+from bot.brokers.ibkr_broker import IbkrBroker, YahooData
+from bot.brokers.paper import PaperBroker
 from bot.config import load_config, is_live_trading
 from bot.logger import get_logger
 from bot.risk import RiskConfig, RiskManager
@@ -54,8 +57,7 @@ class MarketTrader:
         return datetime.now(timezone.utc)
 
     def equity(self, prices: dict) -> float:
-        cash, holdings = self.broker.balances()
-        value = cash
+        value = self.broker.get_balance()
         for p in self.store.positions(self.market):
             value += p.qty * prices.get(p.symbol, p.entry_price)
         return value
@@ -103,7 +105,7 @@ class MarketTrader:
         cached = self._signals.get(symbol)
         if cached and cached[0] == today:
             return cached[1], cached[2]
-        candles = self.broker.candles(symbol)
+        candles = self.broker.get_candles(symbol)
         want_in = False
         if len(candles) >= 50:
             strategy = load_strategy(self.strategy_name, **self.strategy_params)
@@ -112,7 +114,7 @@ class MarketTrader:
         return want_in, candles
 
     def manage_position(self, pos: Position, prices: dict) -> None:
-        price = self.broker.price(pos.symbol)
+        price = self.broker.get_price(pos.symbol)
         prices[pos.symbol] = price
         want_in, candles = self.signal(pos.symbol)
         current_atr = float(atr(candles, self.risk.config.atr_period).iloc[-1]) if len(candles) else 0
@@ -138,18 +140,18 @@ class MarketTrader:
             return
         if self.store.get(wait_key):             # stopped out: wait for a fresh signal
             return
-        price = self.broker.price(symbol)
+        price = self.broker.get_price(symbol)
         current_atr = float(atr(candles, self.risk.config.atr_period).iloc[-1])
         if math.isnan(current_atr):
             return
-        cash, _ = self.broker.balances()
+        cash = self.broker.get_balance()
         decision = self.risk.check_buy(price, current_atr, equity, cash,
                                        open_trades=len(self.store.positions(self.market)),
                                        rules=self.broker.rules(symbol), now=self._now())
         if not decision.approved:
             log.info("[%s] %s: buy not approved (%s)", self.market, symbol, decision.reason)
             return
-        fill = self.broker.buy(symbol, decision, price)
+        fill = self.broker.place_order(symbol, "buy", decision, price)
         if not fill:
             return
         # Keep the stop the same distance below the real fill price
@@ -169,7 +171,7 @@ class MarketTrader:
             log.warning("[%s] %s: cannot sell (%s); forgetting the dust", self.market, pos.symbol, decision.reason)
             self.store.delete_position(self.market, pos.symbol)
             return
-        fill = self.broker.sell(pos.symbol, decision, price)
+        fill = self.broker.close_position(pos.symbol, decision, price)
         if not fill:
             return
         pnl = fill.qty * (fill.price - pos.entry_price) - fill.fee
@@ -185,7 +187,7 @@ class MarketTrader:
     # ------------------------------------------------------------------ startup
     def reconcile(self) -> None:
         """Compare what we THINK we hold with what the broker SAYS we hold (after a crash/restart)."""
-        cash, holdings = self.broker.balances()
+        cash, holdings = self.broker.get_balance(), self.broker.get_positions()
         for pos in self.store.positions(self.market):
             actual = holdings.get(pos.symbol, 0.0)
             if actual <= 0:

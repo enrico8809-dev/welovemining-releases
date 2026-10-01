@@ -244,6 +244,8 @@ def main():
     if not grid:
         parser.error(f"no grid for '{args.strategy}' in config.yaml -> optimizer.grids")
     market = cfg["markets"][args.market]
+    if market["source"] == "mt5":
+        parser.error("the optimizer works on crypto and stocks; Forex uses the default settings for now")
     symbols = args.symbols or market["symbols"]
 
     data, settings = {}, {}

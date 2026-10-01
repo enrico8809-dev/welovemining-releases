@@ -140,7 +140,7 @@ class Commands:
         for t in self.traders:
             if t.market == market:
                 try:
-                    return t.broker.price(symbol)
+                    return t.broker.get_price(symbol)
                 except Exception:
                     break
         return fallback

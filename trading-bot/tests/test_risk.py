@@ -87,9 +87,9 @@ def test_missing_data_is_rejected():
 
 def test_trailing_stop_only_moves_up():
     rm = manager(trailing_atr_mult=3)
-    stop = rm.trailing_stop(current_stop=96, highest_price=110, atr=2)
+    stop = rm.trailing_stop(current_stop=96, best_price=110, atr=2)
     assert stop == pytest.approx(104)
-    assert rm.trailing_stop(current_stop=stop, highest_price=105, atr=2) == pytest.approx(104)
+    assert rm.trailing_stop(current_stop=stop, best_price=105, atr=2) == pytest.approx(104)
 
 
 def test_selling_is_allowed_even_when_halted():

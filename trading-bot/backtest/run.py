@@ -3,11 +3,12 @@
 Examples (run from the trading-bot folder):
     python -m backtest.run                                    (crypto, sma_cross)
     python -m backtest.run --strategy all                     (compare every strategy)
-    python -m backtest.run --market forex --strategy rsi_dip
+    python -m backtest.run --market forex --strategy regime   (Forex: long + short, lots, spread, swap)
     python -m backtest.run --market stocks --symbols SPY GLD --strategy all
     python -m backtest.run --symbols BTC/USDT --strategy sma_cross --params fast=20 slow=50
 
 Reports the full history plus each bull / bear / sideways period of the market (config.yaml).
+Forex always runs with the Risk Manager (it sizes the lots) and is reported separately.
 """
 import argparse
 import math
@@ -16,6 +17,7 @@ import os
 import pandas as pd
 
 from backtest.engine import BacktestSettings, load_market_rules, run_backtest
+from backtest.forex_engine import ForexSettings, run_forex_backtest
 from backtest.metrics import summarize
 from backtest.risk_engine import run_backtest_with_risk
 from bot.risk import RiskConfig
@@ -50,6 +52,9 @@ def parse_params(pairs: list[str]) -> dict:
     params = {}
     for pair in pairs or []:
         key, value = pair.split("=", 1)
+        if value.lower() in ("true", "false"):
+            params[key] = value.lower() == "true"
+            continue
         try:
             params[key] = int(value)
         except ValueError:
@@ -69,20 +74,23 @@ def market_settings(cfg: dict, market_name: str, symbol: str, candles: pd.DataFr
     cache_dir = ROOT / cfg["data"]["cache_dir"]
     source_id = source_of(market)
     rules = load_market_rules(cache_dir, source_id, symbol, market["min_order"], market["amount_step"])
-
-    # Money is counted in the pair's quote currency. For Forex pairs like USDZAR=X that is ZAR,
-    # so scale the capital, minimum order and minimum fee (all set in USD) by the USD price.
-    scale = 1.0
-    if market_name == "forex" and symbol.upper().startswith("USD"):
-        scale = float(candles["close"].iloc[0])
-        rules.min_cost *= scale
     return BacktestSettings(
-        initial_capital=cfg["backtest"]["initial_capital"] * scale,
+        initial_capital=cfg["backtest"]["initial_capital"],
         fee_pct=market["fee_pct"],
-        min_fee=market.get("min_fee", 0) * scale,
+        min_fee=market.get("min_fee", 0),
         slippage_pct=market["slippage_pct"],
         rules=rules,
     )
+
+
+def load_market_candles(cfg: dict, market_name: str, symbol: str, timeframe: str) -> pd.DataFrame:
+    """Cached candles for any market (Forex: MT5 history, else the Yahoo fallback)."""
+    cache_dir = ROOT / cfg["data"]["cache_dir"]
+    market = cfg["markets"][market_name]
+    if market["source"] == "mt5":
+        from data.forex_data import load_forex_candles
+        return load_forex_candles(cache_dir, symbol, timeframe, market)[0]
+    return load_candles(cache_dir, source_of(market), symbol, timeframe)
 
 
 def source_of(market: dict) -> str:
@@ -98,6 +106,8 @@ def backtest_symbol(cfg: dict, market_name: str, symbol: str, timeframe: str,
     Returns {period name: summary}."""
     market = cfg["markets"][market_name]
     min_trades = cfg["backtest"]["min_trades_warning"]
+    if market["source"] == "mt5":
+        return backtest_forex_symbol(cfg, symbol, timeframe, strategy_name, params, show)
     candles = load_candles(ROOT / cfg["data"]["cache_dir"], source_of(market), symbol, timeframe)
     settings = market_settings(cfg, market_name, symbol, candles)
 
@@ -130,6 +140,53 @@ def backtest_symbol(cfg: dict, market_name: str, symbol: str, timeframe: str,
         print(f"\n=== {symbol} {timeframe} | {load_strategy(strategy_name, **params)}"
               f"{' + RISK MANAGER' if use_risk else ''} | "
               f"fee {settings.fee_pct}% (min {settings.min_fee:g}) + slippage {settings.slippage_pct}% per side ===")
+        print(table.to_string())
+        for w in warnings:
+            print(f"  WARNING {w}")
+    return columns
+
+
+def backtest_forex_symbol(cfg: dict, symbol: str, timeframe: str, strategy_name: str, params: dict,
+                          show: bool = True) -> dict:
+    """Forex: long + short, lots sized by the Risk Manager, spread/commission/swap included."""
+    from data.forex_data import load_forex_candles, load_lot_rules
+    from strategies import supports_short
+    market = cfg["markets"]["forex"]
+    cache_dir = ROOT / cfg["data"]["cache_dir"]
+    candles, data_source = load_forex_candles(cache_dir, symbol, timeframe, market)
+    lot_rules, spec_source = load_lot_rules(cache_dir, symbol, market)
+    settings = ForexSettings(initial_capital=cfg["backtest"].get("forex_capital", 10_000),
+                             account_currency=market.get("account_currency", "USD"),
+                             commission_per_lot=market.get("commission_per_lot", 0))
+    risk_config = RiskConfig.from_config(cfg, market="forex")
+    params = {**config_params(cfg, strategy_name), **params}
+    if supports_short(strategy_name):
+        params.setdefault("allow_short", True)
+
+    periods = {"full": (None, None)}
+    periods.update({name: (p["start"], p["end"]) for name, p in market.get("periods", {}).items()})
+    columns, warnings = {}, []
+    for name, (start, end) in periods.items():
+        try:
+            result = run_forex_backtest(candles, load_strategy(strategy_name, **params), lot_rules,
+                                        settings, risk_config, start, end)
+        except ValueError as e:
+            warnings.append(f"[{name}] skipped: {e}")
+            continue
+        s = summarize(result, cfg["backtest"]["min_trades_warning"])
+        s["from"], s["to"] = result.equity.index[0], result.equity.index[-1]
+        s["shorts"] = sum(1 for o in result.orders if o["reason"] == "signal" and o["side"] == "sell")
+        columns[name] = s
+        warnings += [f"[{name}] {w}" for w in s["warnings"]]
+        if name == "full":
+            warnings += [f"[risk] {n}" for n in result.notes]
+    if show:
+        rows = ROWS[:-1] + [("shorts", "Short entries", "{:d}"), ("skipped_orders", "Skipped (too small)", "{:d}")]
+        table = pd.DataFrame({col: {label: fmt(s.get(key), f) for key, label, f in rows}
+                              for col, s in columns.items()})
+        print(f"\n=== FOREX {symbol} {timeframe} | {load_strategy(strategy_name, **params)} + RISK MANAGER | "
+              f"data: {data_source}, specs: {spec_source} | max {risk_config.max_leverage:g}:1, "
+              f"commission {settings.commission_per_lot:g}/lot, swap {lot_rules.swap_long:g}/{lot_rules.swap_short:g} pts ===")
         print(table.to_string())
         for w in warnings:
             print(f"  WARNING {w}")
