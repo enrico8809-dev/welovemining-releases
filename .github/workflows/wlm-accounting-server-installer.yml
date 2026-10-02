@@ -74,6 +74,7 @@ jobs:
           Copy-Item "wlm-accounting-server/installer/wlm-accounting-service.xml" "$payload/"
           Copy-Item "wlm-accounting-server/installer/Server status.cmd" "$payload/"
           Copy-Item "wlm-accounting-server/installer/Add tunnel route.ps1" "$payload/"
+          Copy-Item "wlm-accounting-server/installer/WLM-Diagnose.cmd" "$payload/"
           Copy-Item wlm-accounting-server/installer/wlm.ico "$payload/"
 
           # Runtime dependencies only — the tooling has no business shipping.

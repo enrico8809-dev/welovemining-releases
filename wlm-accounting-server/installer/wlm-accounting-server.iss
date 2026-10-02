@@ -37,6 +37,7 @@ Source: "payload\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ig
 
 [Icons]
 Name: "{group}\Server status"; Filename: "{app}\Server status.cmd"; IconFilename: "{app}\wlm.ico"
+Name: "{group}\Diagnose a problem"; Filename: "{app}\WLM-Diagnose.cmd"; IconFilename: "{app}\wlm.ico"
 Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\WLM Accounting Server status"; Filename: "{app}\Server status.cmd"; IconFilename: "{app}\wlm.ico"
 
