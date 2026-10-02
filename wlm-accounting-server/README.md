@@ -56,7 +56,15 @@ this same machine, and that tunnel is **locally managed** — its routes live in
 configuration file on the PC, not in the dashboard. The dashboard says so at the
 top of the tunnel's Routes tab, and the Add route button there won't help.
 
-So the hostname is added in two places: the config file, and DNS.
+**The installer offers to do all of this.** When it finds a tunnel service
+already running and you have given it a hostname, it asks whether to add the
+route — and if you say yes, it finds the file the service is actually running
+with, copies it aside, inserts the rule above the catch-all with the file's own
+indentation, has `cloudflared` validate the result, puts the copy back if that
+fails, restarts the tunnel, and creates the DNS record. Your existing routes are
+not touched.
+
+Say no, or do it on a machine without the installer, and it goes like this.
 
 **1. Find the config file.** In an administrator command prompt:
 

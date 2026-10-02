@@ -73,6 +73,7 @@ jobs:
           Copy-Item wlm-accounting-server/README.md "$payload/"
           Copy-Item "wlm-accounting-server/installer/wlm-accounting-service.xml" "$payload/"
           Copy-Item "wlm-accounting-server/installer/Server status.cmd" "$payload/"
+          Copy-Item "wlm-accounting-server/installer/Add tunnel route.ps1" "$payload/"
           Copy-Item wlm-accounting-server/installer/wlm.ico "$payload/"
 
           # Runtime dependencies only — the tooling has no business shipping.
@@ -116,6 +117,68 @@ jobs:
           } finally {
             Stop-Process -Id $server.Id -Force
           }
+
+      - name: Check the tunnel-route script edits a config correctly
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $script = "wlm-accounting-server/installer/Add tunnel route.ps1"
+
+          # Shaped like the tunnel this actually runs against: two existing
+          # routes and a catch-all that must stay last.
+          $work = Join-Path $env:TEMP "wlm-tunnel-test"
+          New-Item -ItemType Directory -Force -Path $work | Out-Null
+          $config = Join-Path $work "config.yml"
+          @(
+            "tunnel: ee20c971-651b-42ad-8408-721ba3dc2538"
+            "credentials-file: C:\cloudflared\ee20c971.json"
+            ""
+            "ingress:"
+            "  - hostname: crm.welovemining.co.za"
+            "    service: http://localhost:4600"
+            "  - hostname: dss.welovemining.co.za"
+            "    service: http://127.0.0.1:8080"
+            "  - service: http_status:404"
+          ) | Set-Content -LiteralPath $config
+
+          $cloudflared = "wlm-accounting-server/installer/payload/cloudflared.exe"
+
+          & $script -Hostname "accounting.welovemining.co.za" -Port 4610 `
+            -ConfigPath $config -CloudflaredPath $cloudflared -SkipServiceRestart -SkipDns
+          if ($LASTEXITCODE -ne 0) { throw "the script reported failure" }
+
+          $lines = @(Get-Content $config)
+          $new = ($lines | Select-String -SimpleMatch "accounting.welovemining.co.za").LineNumber
+          $catchAll = ($lines | Select-String -SimpleMatch "http_status:404").LineNumber
+          if (-not $new) { throw "the hostname was not added" }
+          if ($new -gt $catchAll) { throw "the rule landed below the catch-all, where it would never match" }
+          if (-not ($lines -match "service: http://127.0.0.1:4610")) { throw "the port was not written" }
+
+          # The CRM's own routes have to survive untouched.
+          if (-not ($lines -match "crm.welovemining.co.za")) { throw "an existing route was lost" }
+          if (-not ($lines -match "service: http://localhost:4600")) { throw "an existing route was altered" }
+
+          # cloudflared itself has to accept the result.
+          & $cloudflared tunnel ingress validate --config $config
+          if ($LASTEXITCODE -ne 0) { throw "cloudflared rejected the edited file" }
+
+          # Running it twice must not add it twice.
+          $before = (Get-Content $config -Raw)
+          & $script -Hostname "accounting.welovemining.co.za" -Port 4610 `
+            -ConfigPath $config -CloudflaredPath $cloudflared -SkipServiceRestart -SkipDns
+          if ((Get-Content $config -Raw) -ne $before) { throw "a second run changed the file again" }
+
+          # A file with no catch-all is left alone rather than guessed at.
+          $odd = Join-Path $work "no-catchall.yml"
+          @("tunnel: x", "ingress:", "  - hostname: crm.welovemining.co.za", "    service: http://localhost:4600") |
+            Set-Content -LiteralPath $odd
+          $oddBefore = (Get-Content $odd -Raw)
+          & $script -Hostname "accounting.welovemining.co.za" -Port 4610 `
+            -ConfigPath $odd -CloudflaredPath $cloudflared -SkipServiceRestart -SkipDns
+          if ($LASTEXITCODE -eq 0) { throw "it should refuse a file it does not understand" }
+          if ((Get-Content $odd -Raw) -ne $oddBefore) { throw "it edited a file it does not understand" }
+
+          Write-Host "tunnel-route script: adds above the catch-all, keeps existing routes, idempotent, refuses the unfamiliar"
 
       - name: Install Inno Setup
         shell: pwsh
