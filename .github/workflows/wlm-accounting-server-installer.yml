@@ -158,9 +158,11 @@ jobs:
           if (-not ($lines -match "crm.welovemining.co.za")) { throw "an existing route was lost" }
           if (-not ($lines -match "service: http://localhost:4600")) { throw "an existing route was altered" }
 
-          # cloudflared itself has to accept the result.
-          & $cloudflared tunnel ingress validate --config $config
-          if ($LASTEXITCODE -ne 0) { throw "cloudflared rejected the edited file" }
+          # cloudflared itself has to accept the result. --config is a global
+          # flag and has to come before the subcommand.
+          $validation = & $cloudflared --config $config tunnel ingress validate 2>&1
+          if ($LASTEXITCODE -ne 0) { throw "cloudflared rejected the edited file: $validation" }
+          if ($validation -match "OPTIONS:") { throw "cloudflared printed its help instead of validating: $validation" }
 
           # Running it twice must not add it twice.
           $before = (Get-Content $config -Raw)
@@ -178,7 +180,28 @@ jobs:
           if ($LASTEXITCODE -eq 0) { throw "it should refuse a file it does not understand" }
           if ((Get-Content $odd -Raw) -ne $oddBefore) { throw "it edited a file it does not understand" }
 
-          Write-Host "tunnel-route script: adds above the catch-all, keeps existing routes, idempotent, refuses the unfamiliar"
+          # A config cloudflared will reject, to prove the rollback works: the
+          # file must come back exactly as it was, and the script must say so.
+          $bad = Join-Path $work "rejected.yml"
+          @(
+            "tunnel: ee20c971-651b-42ad-8408-721ba3dc2538"
+            "ingress:"
+            "  - hostname: crm.welovemining.co.za"
+            "    service: ftp://not-a-supported-scheme"
+            "  - service: http_status:404"
+          ) | Set-Content -LiteralPath $bad
+          $badBefore = (Get-Content $bad -Raw)
+
+          & $script -Hostname "accounting.welovemining.co.za" -Port 4610 `
+            -ConfigPath $bad -CloudflaredPath $cloudflared -SkipServiceRestart -SkipDns
+          if ($LASTEXITCODE -eq 0) { throw "it should fail when cloudflared rejects the result" }
+          if ((Get-Content $bad -Raw) -ne $badBefore) { throw "it left the file edited after a failed validation" }
+
+          Write-Host "tunnel-route script: adds above the catch-all, keeps existing routes, idempotent, refuses the unfamiliar, rolls back a rejected edit"
+
+          # The refusal above exits 1 by design, and this step would otherwise
+          # inherit that as its own result.
+          exit 0
 
       - name: Install Inno Setup
         shell: pwsh
