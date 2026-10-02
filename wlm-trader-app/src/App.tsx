@@ -163,7 +163,7 @@ export function statusOf(o: Overview): { text: string; color: string; pulse: boo
 export function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <div className="brand" style={compact ? { padding: 0 } : undefined}>
-      <div className="brand-mark"><img src="./emblem.png" alt="WeLoveMining" /></div>
+      <div className="brand-mark"><img src="./emblem.svg" alt="WeLoveMining" /></div>
       <div>
         <div className="brand-name">WLM TRADER</div>
         {!compact && <div className="brand-sub">WELOVEMINING</div>}
@@ -172,14 +172,13 @@ export function Brand({ compact = false }: { compact?: boolean }) {
   );
 }
 
-/** The WeLoveMining emblem with the app name, for the welcome and connect screens
- *  (the logo's own wordmark is dark, so it's set in the app's light text here). */
+/** The full WeLoveMining logo (emblem + wordmark) with the app name, for the welcome and
+ *  connect screens. */
 export function Logo() {
   return (
-    <div style={{ display: "grid", justifyItems: "center", gap: 6, padding: "6px 0 2px" }}>
-      <div className="brand-hero"><img src="./emblem.png" alt="WeLoveMining" /></div>
-      <div className="brand-name" style={{ fontSize: 24 }}>WLM TRADER</div>
-      <div className="brand-sub">WELOVEMINING</div>
+    <div style={{ display: "grid", justifyItems: "center", gap: 10, padding: "6px 0 2px" }}>
+      <div className="brand-hero"><img src="./logo-full.svg" alt="WeLoveMining - www.welovemining.co.za" /></div>
+      <div className="brand-name" style={{ fontSize: 22, color: "var(--orange)", letterSpacing: 3 }}>WLM TRADER</div>
     </div>
   );
 }
