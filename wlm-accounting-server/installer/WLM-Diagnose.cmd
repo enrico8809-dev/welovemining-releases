@@ -19,7 +19,12 @@ if errorlevel 1 (
   exit /b
 )
 
-set "REPORT=%USERPROFILE%\Desktop\wlm-diagnosis.txt"
+rem Beside this script, not on the Desktop: a Desktop redirected into OneDrive
+rem may not exist as %USERPROFILE%\Desktop at all, and the report would be
+rem written nowhere with nothing to say so.
+set "REPORT=%~dp0wlm-diagnosis.txt"
+copy /y nul "%REPORT%" >nul 2>&1
+if not exist "%REPORT%" set "REPORT=%TEMP%\wlm-diagnosis.txt"
 set "WLM_HOST=accounting.welovemining.co.za"
 set "WLM_PORT=4610"
 set "WLM_DATA_DIR=C:\ProgramData\WLM Accounting"
@@ -94,6 +99,7 @@ type "%REPORT%"
 echo.
 echo   ------------------------------------------------------------------
 echo   Saved to: %REPORT%
+echo   ^(open that folder with:  explorer /select,"%REPORT%"^)
 echo.
 echo   What the https status in [10] means:
 echo.
