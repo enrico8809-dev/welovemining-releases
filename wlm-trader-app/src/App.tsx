@@ -163,7 +163,7 @@ export function statusOf(o: Overview): { text: string; color: string; pulse: boo
 export function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <div className="brand" style={compact ? { padding: 0 } : undefined}>
-      <img className="brand-mark" src="./emblem.png" alt="WeLoveMining" />
+      <div className="brand-mark"><img src="./emblem.png" alt="WeLoveMining" /></div>
       <div>
         <div className="brand-name">WLM TRADER</div>
         {!compact && <div className="brand-sub">WELOVEMINING</div>}
@@ -177,7 +177,7 @@ export function Brand({ compact = false }: { compact?: boolean }) {
 export function Logo() {
   return (
     <div style={{ display: "grid", justifyItems: "center", gap: 6, padding: "6px 0 2px" }}>
-      <img src="./emblem.png" alt="WeLoveMining" style={{ width: "min(200px, 55%)", filter: "drop-shadow(0 8px 24px rgba(247,147,26,.35))" }} />
+      <div className="brand-hero"><img src="./emblem.png" alt="WeLoveMining" /></div>
       <div className="brand-name" style={{ fontSize: 24 }}>WLM TRADER</div>
       <div className="brand-sub">WELOVEMINING</div>
     </div>
