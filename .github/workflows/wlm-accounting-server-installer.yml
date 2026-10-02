@@ -1,0 +1,161 @@
+name: WLM Accounting Server — Windows installer
+
+# Builds WLM-Accounting-Server-Setup.exe and publishes it to the
+# `accounting-server-latest` release. Bundles Node, the built server, the WinSW
+# service wrapper and cloudflared, so the PC it installs on needs nothing
+# beforehand. Unsigned, like the other two — SmartScreen warns on first run.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "wlm-accounting-server/**"
+      - ".github/workflows/wlm-accounting-server-installer.yml"
+  pull_request:
+    paths:
+      - "wlm-accounting-server/**"
+      - ".github/workflows/wlm-accounting-server-installer.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Typecheck and test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: wlm-accounting-server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Includes the round-trip tests, which start this server for real and sync
+      # two devices against it over HTTP.
+      - name: Test
+        run: npm test
+
+  build:
+    name: Build Setup.exe
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build the server
+        working-directory: wlm-accounting-server
+        run: |
+          npm ci
+          npm run build
+
+      - name: Stage payload
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $payload = "wlm-accounting-server/installer/payload"
+          New-Item -ItemType Directory -Force -Path $payload | Out-Null
+
+          Copy-Item -Recurse wlm-accounting-server/dist "$payload/dist"
+          Copy-Item wlm-accounting-server/package.json "$payload/"
+          Copy-Item wlm-accounting-server/README.md "$payload/"
+          Copy-Item "wlm-accounting-server/installer/wlm-accounting-service.xml" "$payload/"
+          Copy-Item "wlm-accounting-server/installer/Server status.cmd" "$payload/"
+          Copy-Item wlm-accounting-server/installer/wlm.ico "$payload/"
+
+          # Runtime dependencies only — the tooling has no business shipping.
+          Push-Location wlm-accounting-server
+          npm ci --omit=dev
+          Pop-Location
+          Copy-Item -Recurse wlm-accounting-server/node_modules "$payload/node_modules"
+
+          $node = "v22.12.0"
+          Invoke-WebRequest "https://nodejs.org/dist/$node/node-$node-win-x64.zip" -OutFile node.zip
+          Expand-Archive node.zip -DestinationPath nodetmp -Force
+          Copy-Item "nodetmp/node-$node-win-x64/node.exe" "$payload/node.exe"
+
+          Invoke-WebRequest "https://github.com/winsw/winsw/releases/download/v2.12.0/WinSW-x64.exe" -OutFile "$payload/wlm-accounting-service.exe"
+          Invoke-WebRequest "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -OutFile "$payload/cloudflared.exe"
+
+          Get-ChildItem $payload | Format-Table Name,Length
+
+      - name: Check the server starts from the staged payload
+        shell: pwsh
+        working-directory: wlm-accounting-server/installer/payload
+        run: |
+          $ErrorActionPreference = "Stop"
+          # Worth two minutes: the installer bundles its own Node and its own
+          # node_modules, and a missing runtime dependency would otherwise show
+          # up as a service that won't start on the owner's PC.
+          $env:PORT = "4699"
+          $env:WLM_DATA_DIR = "$env:TEMP\wlm-smoke"
+          $server = Start-Process -FilePath "./node.exe" -ArgumentList "dist/index.js" -PassThru -NoNewWindow
+          try {
+            $ok = $false
+            foreach ($attempt in 1..20) {
+              Start-Sleep -Milliseconds 500
+              try {
+                $health = Invoke-RestMethod "http://127.0.0.1:4699/api/health" -TimeoutSec 2
+                if ($health.ok -and $health.service -eq "wlm-accounting-server") { $ok = $true; break }
+              } catch { }
+            }
+            if (-not $ok) { throw "The staged server did not answer on port 4699" }
+            Write-Host "Staged payload serves /api/health"
+          } finally {
+            Stop-Process -Id $server.Id -Force
+          }
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Compile installer
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" wlm-accounting-server/installer/wlm-accounting-server.iss
+          Get-ChildItem wlm-accounting-server/installer/Output
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: WLM Accounting Server (Windows)
+          tag_name: accounting-server-latest
+          target_commitish: ${{ github.sha }}
+          body: |
+            **WLM Accounting sync server** — install this on the always-on
+            Windows PC that should hold the books. The phone and the Windows app
+            then sync against it.
+
+            Run `WLM-Accounting-Server-Setup.exe` as administrator (a Windows
+            service needs that once). It bundles everything: Node, the server,
+            the service wrapper and Cloudflare's tunnel client.
+
+            During install you are asked for a hostname and a Cloudflare
+            connector token — get both from Cloudflare under Zero Trust →
+            Networks → Tunnels, pointing the hostname at `http://127.0.0.1:4600`.
+            Both boxes can be left empty and done later.
+
+            Afterwards, **Server status** on the desktop says whether the server
+            and the tunnel are each up, and shows the address to paste into both
+            apps.
+
+            The server listens on this PC only; the tunnel connects outwards, so
+            no router port is opened. The books are kept in
+            `C:\ProgramData\WLM Accounting` and are left there if you uninstall.
+
+            Not code-signed, so Windows shows "Windows protected your PC" the
+            first time — More info → Run anyway.
+          files: wlm-accounting-server/installer/Output/WLM-Accounting-Server-Setup.exe
+          fail_on_unmatched_files: true
