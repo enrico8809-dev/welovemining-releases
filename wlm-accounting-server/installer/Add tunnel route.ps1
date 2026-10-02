@@ -139,8 +139,16 @@ foreach ($line in $addition) { Write-Host "    $line" }
 
 # --- prove it still parses before anything restarts --------------------------
 
-$validation = & $cloudflared tunnel ingress validate --config $config 2>&1
-if ($LASTEXITCODE -ne 0) {
+# --config is a global flag: after the subcommand it is not recognised, and
+# cloudflared answers by printing its help rather than validating anything.
+$validation = & $cloudflared --config $config tunnel ingress validate 2>&1
+
+# A usage dump means the command was not understood, so nothing was checked.
+# Treating that as success would be worse than a plain failure: the file would
+# be left edited on the strength of a validation that never happened.
+$didNotValidate = ($LASTEXITCODE -ne 0) -or ($validation -match "OPTIONS:") -or ($validation -match "USAGE:")
+
+if ($didNotValidate) {
   Copy-Item -LiteralPath $backup -Destination $config -Force
   Write-Host ""
   Write-Warning "cloudflared rejected the edited file, so the original has been put back:"
