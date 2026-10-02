@@ -182,12 +182,16 @@ jobs:
 
           # A config cloudflared will reject, to prove the rollback works: the
           # file must come back exactly as it was, and the script must say so.
+          #
+          # Broken YAML rather than a bad service URL — cloudflared accepts
+          # schemes it has no use for (ftp:// passes), so only a parse error is
+          # a dependable rejection.
           $bad = Join-Path $work "rejected.yml"
           @(
-            "tunnel: ee20c971-651b-42ad-8408-721ba3dc2538"
+            'tunnel: "unclosed-quote'
             "ingress:"
             "  - hostname: crm.welovemining.co.za"
-            "    service: ftp://not-a-supported-scheme"
+            "    service: http://localhost:4600"
             "  - service: http_status:404"
           ) | Set-Content -LiteralPath $bad
           $badBefore = (Get-Content $bad -Raw)
