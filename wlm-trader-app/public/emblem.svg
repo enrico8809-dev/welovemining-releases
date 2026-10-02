@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-64 0 874 522">
+  <!-- WeLoveMining emblem: ASIC miner + pickaxe + Bitcoin. Coordinates follow the original artwork. -->
+  <defs>
+    <radialGradient id="glow" cx="560" cy="270" r="250" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFA000" stop-opacity="1"/><stop offset=".4" stop-color="#F09010" stop-opacity=".85"/><stop offset=".7" stop-color="#C9780E" stop-opacity=".32"/><stop offset="1" stop-color="#FF9800" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <circle cx="560" cy="270" r="250" fill="url(#glow)"/>
+
+  <filter id="mshadow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="18"/></filter>
+  <path d="M30 222 L92 150 L94 100 L330 86 L352 450 L250 497 L46 470 Z" fill="#000" opacity=".55" filter="url(#mshadow)"/>
+  <!-- Miner body -->
+  <g stroke-linejoin="round" stroke-linecap="round">
+    <path d="M30 222 C30 214 34 210 42 204 L92 150 L94 106 C94 98 100 94 108 94 L330 86 L352 450 L250 497 C244 500 238 500 232 499 L46 470 C38 469 32 463 32 455 Z"
+          fill="#0D0E10" stroke="#8E8E8E" stroke-width="6"/>
+    <!-- top face line and lid edge -->
+    <path d="M32 214 L230 214 C246 214 256 208 266 198 L318 140" fill="none" stroke="#8E8E8E" stroke-width="5"/>
+    <path d="M94 150 L250 150" fill="none" stroke="#8E8E8E" stroke-width="4" opacity=".55"/>
+    <!-- vents on the lid -->
+    <path d="M196 132 L300 98 M232 142 L326 110" fill="none" stroke="#7E7E7E" stroke-width="6"/>
+    <!-- slot -->
+    <rect x="128" y="164" width="94" height="26" rx="3" transform="rotate(-2 175 177)" fill="#0D0E10" stroke="#9A9A9A" stroke-width="5"/>
+    <!-- fan -->
+    <g fill="none" stroke="#9B9B9B" stroke-width="7">
+      <line x1="58" y1="240" x2="226" y2="452"/><line x1="226" y1="240" x2="58" y2="440"/>
+      <circle cx="140" cy="345" r="72" fill="#0D0E10"/><circle cx="140" cy="345" r="46" fill="#0D0E10"/><circle cx="140" cy="345" r="19" fill="#0D0E10"/>
+    </g>
+    <g stroke="#9B9B9B" stroke-width="7"><line x1="88" y1="280" x2="192" y2="410"/><line x1="192" y1="280" x2="88" y2="410"/></g>
+    <circle cx="140" cy="345" r="19" fill="#0D0E10" stroke="#9B9B9B" stroke-width="7"/>
+  </g>
+
+  <!-- Pickaxe head (crescent) -->
+  <path d="M418 16 C350 52 290 122 266 222 C250 300 268 380 316 440 C338 468 362 490 392 506
+           C370 470 352 420 346 362 C342 330 344 312 354 296 L354 250 C346 200 358 120 418 16 Z"
+        fill="#0D0E10" stroke="#8E8E8E" stroke-width="6" stroke-linejoin="round"/>
+  <path d="M400 42 C340 100 300 166 288 238 C280 302 294 372 336 434" fill="none" stroke="#6E6E6E" stroke-width="5" stroke-linecap="round"/>
+
+  <!-- Bitcoin B + handle: black outline drawn once under the union of the orange shapes -->
+  <filter id="bglow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="20"/></filter>
+  <g fill="#FFA21A" filter="url(#bglow)"><use href="#bshape"/><use href="#bshape"/></g>
+  <g id="coin">
+    <g fill="#111" stroke="#111" stroke-width="9" stroke-linejoin="round">
+      <use href="#bshape"/>
+    </g>
+    <g fill="#FF9A00"><use href="#bshape"/></g>
+    <g fill="none" stroke="#111" stroke-width="4" stroke-linejoin="round">
+      <path d="M518 170 H600 C622 170 636 185 636 207 C636 230 622 245 600 245 H518 Z"/>
+      <path d="M518 296 H610 C632 296 646 312 646 333 C646 355 632 370 610 370 H518 Z"/>
+    </g>
+  </g>
+  <defs>
+    <g id="bshape">
+      <path fill-rule="evenodd" d="M405 120 H600 C665 120 696 150 696 195 C696 232 676 254 650 265 C690 280 716 310 716 347 C716 395 680 420 620 420 H405 V370 H458 V170 H405 Z
+        M518 170 H600 C622 170 636 185 636 207 C636 230 622 245 600 245 H518 Z M518 296 H610 C632 296 646 312 646 333 C646 355 632 370 610 370 H518 Z"/>
+      <rect x="455" y="66" width="45" height="62"/><rect x="535" y="66" width="45" height="62"/>
+      <rect x="455" y="412" width="45" height="66"/><rect x="535" y="412" width="45" height="66"/>
+      <rect x="352" y="250" width="120" height="45" rx="10"/>
+    </g>
+  </defs>
+</svg>
