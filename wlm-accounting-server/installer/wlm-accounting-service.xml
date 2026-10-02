@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  The sync server as a Windows service, so the books keep syncing across a
+  reboot without anybody remembering to start anything.
+
+  The installer substitutes {{PORT}} and {{DATADIR}} with what you chose. For a
+  manual install, replace them by hand (4600 and C:\ProgramData\WLM Accounting
+  are the defaults) and run `wlm-accounting-service.exe install`.
+
+  The data directory is named explicitly rather than left to %APPDATA%: a service
+  runs as LocalSystem, whose %APPDATA% is buried under system32, and books you
+  can't find are books you can't back up.
+-->
+<service>
+  <id>WLMAccountingServer</id>
+  <name>WLM Accounting Server</name>
+  <description>Sync server for WLM Accounting — keeps the books on the phone and this PC in step. Listens on loopback only; the Cloudflare tunnel is what makes it reachable.</description>
+  <executable>%BASE%\node.exe</executable>
+  <arguments>"%BASE%\dist\index.js"</arguments>
+  <workingdirectory>%BASE%</workingdirectory>
+  <env name="PORT" value="{{PORT}}" />
+  <env name="WLM_DATA_DIR" value="{{DATADIR}}" />
+  <onfailure action="restart" delay="5 sec" />
+  <log mode="roll-by-size">
+    <sizeThreshold>5120</sizeThreshold>
+    <keepFiles>2</keepFiles>
+  </log>
+  <startmode>Automatic</startmode>
+</service>
