@@ -5,7 +5,7 @@ phone through a Cloudflare Tunnel on your own domain. Your books never touch
 anyone else's infrastructure.
 
 ```
-Phone  ──https──►  Cloudflare  ──tunnel──►  this server (127.0.0.1:4600)
+Phone  ──https──►  Cloudflare  ──tunnel──►  this server (127.0.0.1:4610)
                                              └── ledger.json
 ```
 
@@ -14,14 +14,18 @@ router port is forwarded. `cloudflared` makes an outbound connection to
 Cloudflare, and traffic comes back down that same connection — so the machine
 is never directly reachable from the internet.
 
-It shares the PC and the tunnel with the CRM rather than competing with them.
-Port 4600 was chosen to sit clear of the CRM's 4500, and one tunnel can serve
-both hostnames:
+It shares the PC and the tunnel with what is already there rather than competing
+with it. One tunnel serves any number of hostnames, each on its own port:
 
 ```
-crm.welovemining.co.za         ──►  127.0.0.1:4500   the CRM
-accounting.welovemining.co.za  ──►  127.0.0.1:4600   the books
+crm.welovemining.co.za         ──►  127.0.0.1:4600   the CRM
+dss.welovemining.co.za         ──►  127.0.0.1:8080
+accounting.welovemining.co.za  ──►  127.0.0.1:4610   the books
 ```
+
+**4610, not 4600.** The CRM already holds 4600 on that machine. Two programs
+cannot listen on one port: the second simply fails to start, and the only sign
+is a service that won't run.
 
 ## What it does
 
@@ -45,59 +49,78 @@ tunnel client. The PC needs nothing installed beforehand.
 It isn't code-signed, so Windows shows "Windows protected your PC" the first
 time: **More info** → **Run anyway**.
 
-### If this PC already has a tunnel — which it does
+### Adding the hostname to the tunnel already on that PC
 
-The CRM reaches the outside through a Cloudflare tunnel on this same machine.
-**Use that one.** A single tunnel carries as many hostnames as you like, each
-pointing at a different port, and a second tunnel service on one PC fights with
-the first.
+The CRM reaches the outside through a Cloudflare tunnel (`welovemining-crm`) on
+this same machine, and that tunnel is **locally managed** — its routes live in a
+configuration file on the PC, not in the dashboard. The dashboard says so at the
+top of the tunnel's Routes tab, and the Add route button there won't help.
 
-1. Cloudflare dashboard → **Zero Trust** → **Networks** → **Tunnels**
-2. Open the tunnel this PC already uses — the one serving `crm.welovemining.co.za`
-3. **Public Hostnames** → **Add a public hostname**
-   - Subdomain `accounting`, domain `welovemining.co.za`
-   - Service **HTTP** → `127.0.0.1:4600`
-4. Save. It starts working within seconds; nothing needs installing for it.
+**The installer offers to do all of this.** When it finds a tunnel service
+already running and you have given it a hostname, it asks whether to add the
+route — and if you say yes, it finds the file the service is actually running
+with, copies it aside, inserts the rule above the catch-all with the file's own
+indentation, has `cloudflared` validate the result, puts the copy back if that
+fails, restarts the tunnel, and creates the DNS record. Your existing routes are
+not touched.
 
-Then in the installer, fill in the **hostname** and leave the **token box
-empty**. The installer refuses to install a second tunnel service if it finds
-one already running, so a token pasted by mistake can't take the CRM down — but
-leaving it empty is the clearer instruction.
+Say no, or do it on a machine without the installer, and it goes like this.
 
-If that tunnel is the older locally-managed kind — created with
-`cloudflared tunnel create` and configured by a `config.yml` on this PC rather
-than in the dashboard — then add the hostname there instead:
+**1. Find the config file.** In an administrator command prompt:
+
+```
+sc qc cloudflared
+```
+
+The `BINARY_PATH_NAME` it prints contains `--config <path>`. That is the file.
+It is usually one of:
+
+```
+C:\Windows\System32\config\systemprofile\.cloudflared\config.yml
+C:\Users\<you>\.cloudflared\config.yml
+```
+
+**2. Add the ingress rule.** Open it in Notepad as administrator. It will look
+roughly like this; add the middle entry:
 
 ```yaml
 ingress:
   - hostname: crm.welovemining.co.za
-    service: http://127.0.0.1:4500        # whatever the CRM already had
-  - hostname: accounting.welovemining.co.za
-    service: http://127.0.0.1:4600        # add this
-  - service: http_status:404              # this stays last
+    service: http://localhost:4600
+  - hostname: dss.welovemining.co.za
+    service: http://127.0.0.1:8080
+  - hostname: accounting.welovemining.co.za      # add
+    service: http://127.0.0.1:4610               # add
+  - service: http_status:404
 ```
 
-```bash
-cloudflared tunnel route dns <tunnel-name> accounting.welovemining.co.za
+Rules are matched top to bottom and `http_status:404` catches everything, so the
+new entry must go **above** it. Keep the indentation exactly as the existing
+entries have it — YAML counts spaces, and tabs break it.
+
+**3. Restart the tunnel** so it reads the file:
+
+```
+sc stop cloudflared
+sc start cloudflared
 ```
 
-Then restart the tunnel service. The catch-all `http_status:404` rule must stay
-at the bottom — anything after it is never reached.
+**4. Point DNS at the tunnel.** In the Cloudflare dashboard, `welovemining.co.za`
+→ **DNS** → **Add record**:
 
-### If there is no tunnel on the PC yet
+| | |
+|---|---|
+| Type | `CNAME` |
+| Name | `accounting` |
+| Target | `<tunnel-id>.cfargotunnel.com` |
+| Proxy status | **Proxied** (orange cloud) — required |
 
-1. **Zero Trust** → **Networks** → **Tunnels** → **Create a tunnel**
-2. Choose **Cloudflared**, name it `wlm-accounting`
-3. **Copy the connector token** — the long string inside the install command it
-   shows. Just the token; the installer runs the command for you
-4. Add a **public hostname**: `accounting` on `welovemining.co.za`, service
-   **HTTP** → `127.0.0.1:4600`
+The tunnel id is on the tunnel's Overview page. Copying how `crm` is already set
+up is the safest check that this is right.
 
-Paste the hostname and the token into the installer and it sets the tunnel up.
-
-Either way the port has to match on both sides, so leave it at 4600 unless
-something else on that PC already uses it. Both boxes can be left empty and the
-tunnel done later — re-running the installer is how you add it.
+Then run the installer with the hostname filled in and the **token box empty** —
+a token would try to install a second tunnel service, and the installer refuses
+when it finds the one already running.
 
 ### What it sets up
 
@@ -153,8 +176,8 @@ It prints where it's listening and where the data file lives. By default:
 ~/wlm-accounting/ledger.json              (macOS/Linux)
 ```
 
-Override with `WLM_DATA_DIR`. Change the port with `PORT` (default `4600`, so it
-won't collide with the CRM on 4500).
+Override with `WLM_DATA_DIR`. Change the port with `PORT` (default `4610` — the
+CRM already uses 4600 on the machine this runs on).
 
 The server starts with no accounts: whoever claims it first becomes the owner,
 and `/api/health` reports `claimed: false` until then. Claiming is one-time; a
@@ -186,7 +209,7 @@ credentials-file: C:\Users\<you>\.cloudflared\<tunnel-uuid>.json
 
 ingress:
   - hostname: accounting.welovemining.co.za
-    service: http://127.0.0.1:4600
+    service: http://127.0.0.1:4610
   - service: http_status:404
 ```
 

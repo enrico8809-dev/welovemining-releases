@@ -69,7 +69,7 @@ begin
   SetupPage.Add('Hostname you chose (e.g. accounting.welovemining.co.za):', False);
   SetupPage.Add('Cloudflare connector token:', False);
   SetupPage.Add('Port on this PC:', False);
-  SetupPage.Values[2] := '4600';
+  SetupPage.Values[2] := '4610';
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -82,7 +82,7 @@ begin
     Port := StrToIntDef(Trim(SetupPage.Values[2]), 0);
     if (Port < 1) or (Port > 65535) then
     begin
-      MsgBox('That port number is not usable. 4600 is the default.', mbError, MB_OK);
+      MsgBox('That port number is not usable. 4610 is the default.', mbError, MB_OK);
       Result := False;
     end;
   end;
@@ -180,10 +180,7 @@ begin
   if ServiceExists('cloudflared') then
   begin
     MsgBox('This PC already runs a Cloudflare tunnel, so the token was ignored — deliberately.' + #13#10 + #13#10 +
-           'Installing a second tunnel service here would disturb the one already running, which is likely what your CRM goes through.' + #13#10 + #13#10 +
-           'Instead, in Cloudflare open the tunnel this PC already uses, and add a public hostname:' + #13#10 +
-           '    Service: HTTP   ->   127.0.0.1:' + Trim(SetupPage.Values[2]) + #13#10 + #13#10 +
-           'It starts working within seconds, with nothing further to install. The server itself is installed and running.',
+           'Installing a second tunnel service here would disturb the one already running, which is likely what your CRM goes through. The hostname is added to that tunnel instead; the next step offers to do it for you.',
            mbInformation, MB_OK);
     Exit;
   end;
@@ -199,6 +196,39 @@ begin
            mbError, MB_OK);
 end;
 
+// Adds this server's hostname to the tunnel already running here.
+//
+// Offered rather than done quietly: it edits the file the CRM's own tunnel runs
+// on, and that is the owner's call to make. The script backs the file up,
+// validates the result with cloudflared, and puts the backup back if it does not
+// validate — but being asked first is still the difference between a change and
+// a surprise.
+procedure OfferTunnelRoute(const HostName, Port: String);
+var
+  Script, Params: String;
+  Code: Integer;
+begin
+  if HostName = '' then Exit;
+  if not ServiceExists('cloudflared') then Exit;
+
+  if MsgBox('Add ' + HostName + ' to the Cloudflare tunnel already running on this PC?' + #13#10 + #13#10 +
+            'That tunnel keeps its routes in a file here rather than in the dashboard, so one line has to be added to it. This copies the file aside first, checks the result with cloudflared, and puts the copy back if anything is wrong. Your existing routes are left alone.' + #13#10 + #13#10 +
+            'Choosing No leaves the tunnel untouched; the instructions are in the README.',
+            mbConfirmation, MB_YESNO) <> IDYES then Exit;
+
+  Script := ExpandConstant('{app}\Add tunnel route.ps1');
+  Params := '-NoProfile -ExecutionPolicy Bypass -File "' + Script + '"' +
+            ' -Hostname "' + HostName + '" -Port ' + Port;
+
+  // Shown, not hidden: it reports what it found, what it changed, and what to do
+  // about DNS if it could not be done from here.
+  if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Params,
+              '', SW_SHOW, ewWaitUntilTerminated, Code) or (Code <> 0) then
+    MsgBox('The tunnel route was not added (code ' + IntToStr(Code) + ').' + #13#10 + #13#10 +
+           'Nothing is broken — the server is installed and running, and the tunnel is as it was. The window that just closed says why, and the README has the steps to do it by hand.',
+           mbInformation, MB_OK);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Port, Host, Token: String;
@@ -206,7 +236,7 @@ begin
   if CurStep = ssPostInstall then
   begin
     Port := Trim(SetupPage.Values[2]);
-    if Port = '' then Port := '4600';
+    if Port = '' then Port := '4610';
     Host := Trim(SetupPage.Values[0]);
     Token := Trim(SetupPage.Values[1]);
 
@@ -215,5 +245,6 @@ begin
     WriteStatusSettings(Port, Host);
     InstallService();
     InstallTunnel(Token);
+    OfferTunnelRoute(Host, Port);
   end;
 end;
