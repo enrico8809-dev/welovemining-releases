@@ -14,6 +14,15 @@ router port is forwarded. `cloudflared` makes an outbound connection to
 Cloudflare, and traffic comes back down that same connection — so the machine
 is never directly reachable from the internet.
 
+It shares the PC and the tunnel with the CRM rather than competing with them.
+Port 4600 was chosen to sit clear of the CRM's 4500, and one tunnel can serve
+both hostnames:
+
+```
+crm.welovemining.co.za         ──►  127.0.0.1:4500   the CRM
+accounting.welovemining.co.za  ──►  127.0.0.1:4600   the books
+```
+
 ## What it does
 
 - Stores the ledger so every device sees the same books
@@ -36,25 +45,59 @@ tunnel client. The PC needs nothing installed beforehand.
 It isn't code-signed, so Windows shows "Windows protected your PC" the first
 time: **More info** → **Run anyway**.
 
-### Get the tunnel details first
+### If this PC already has a tunnel — which it does
 
-The installer asks for two things that only exist in your Cloudflare account.
-Have them ready and the whole setup is one pass:
+The CRM reaches the outside through a Cloudflare tunnel on this same machine.
+**Use that one.** A single tunnel carries as many hostnames as you like, each
+pointing at a different port, and a second tunnel service on one PC fights with
+the first.
 
-1. Cloudflare dashboard → **Zero Trust** → **Networks** → **Tunnels** → **Create a tunnel**
+1. Cloudflare dashboard → **Zero Trust** → **Networks** → **Tunnels**
+2. Open the tunnel this PC already uses — the one serving `crm.welovemining.co.za`
+3. **Public Hostnames** → **Add a public hostname**
+   - Subdomain `accounting`, domain `welovemining.co.za`
+   - Service **HTTP** → `127.0.0.1:4600`
+4. Save. It starts working within seconds; nothing needs installing for it.
+
+Then in the installer, fill in the **hostname** and leave the **token box
+empty**. The installer refuses to install a second tunnel service if it finds
+one already running, so a token pasted by mistake can't take the CRM down — but
+leaving it empty is the clearer instruction.
+
+If that tunnel is the older locally-managed kind — created with
+`cloudflared tunnel create` and configured by a `config.yml` on this PC rather
+than in the dashboard — then add the hostname there instead:
+
+```yaml
+ingress:
+  - hostname: crm.welovemining.co.za
+    service: http://127.0.0.1:4500        # whatever the CRM already had
+  - hostname: accounting.welovemining.co.za
+    service: http://127.0.0.1:4600        # add this
+  - service: http_status:404              # this stays last
+```
+
+```bash
+cloudflared tunnel route dns <tunnel-name> accounting.welovemining.co.za
+```
+
+Then restart the tunnel service. The catch-all `http_status:404` rule must stay
+at the bottom — anything after it is never reached.
+
+### If there is no tunnel on the PC yet
+
+1. **Zero Trust** → **Networks** → **Tunnels** → **Create a tunnel**
 2. Choose **Cloudflared**, name it `wlm-accounting`
-3. On the next screen, **copy the connector token** — the long string in the
-   install command it shows you. That is what the installer wants; ignore the
-   rest of the command, the installer runs it for you.
-4. Add a **public hostname**: e.g. `accounting` on `welovemining.co.za`, with
-   service **HTTP** → `127.0.0.1:4600`
+3. **Copy the connector token** — the long string inside the install command it
+   shows. Just the token; the installer runs the command for you
+4. Add a **public hostname**: `accounting` on `welovemining.co.za`, service
+   **HTTP** → `127.0.0.1:4600`
 
-The port has to match on both sides, so leave it at 4600 unless something else
-on that PC already uses it.
+Paste the hostname and the token into the installer and it sets the tunnel up.
 
-Both boxes in the installer can be left empty if you'd rather do the tunnel
-later — the server still installs and runs, and re-running the installer is how
-you add the tunnel afterwards.
+Either way the port has to match on both sides, so leave it at 4600 unless
+something else on that PC already uses it. Both boxes can be left empty and the
+tunnel done later — re-running the installer is how you add it.
 
 ### What it sets up
 

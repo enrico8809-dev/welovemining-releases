@@ -63,9 +63,9 @@ begin
     'How the apps will reach this PC',
     'The books live here; the phone and the Windows app sync against them.',
     'The server itself only listens on this machine. To let the phone reach it from anywhere, Cloudflare makes an outbound connection — so nothing is opened on your router.' + #13#10 + #13#10 +
-    'In Cloudflare: Zero Trust, Networks, Tunnels, Create a tunnel. Give it a public hostname whose service is http://127.0.0.1 followed by the port below, then copy the connector token it shows and paste it here.' + #13#10 + #13#10 +
-    'The port has to match on both sides, so leave it at 4600 unless something else on this PC already uses it.' + #13#10 + #13#10 +
-    'Both boxes can be left empty — the server still installs and runs, and you can come back to the tunnel later.');
+    'ALREADY RUNNING A TUNNEL ON THIS PC (for the CRM, say)? Then leave the token box EMPTY. One tunnel serves as many hostnames as you like: in Cloudflare, open that tunnel and add a public hostname whose service is http://127.0.0.1 and the port below. Nothing needs installing here — the tunnel already running picks it up.' + #13#10 + #13#10 +
+    'NO TUNNEL ON THIS PC YET? In Cloudflare: Zero Trust, Networks, Tunnels, Create a tunnel. Give it a public hostname pointing at http://127.0.0.1 and the port below, then paste its connector token here and this installer sets the tunnel up for you.' + #13#10 + #13#10 +
+    'Either way, fill in the hostname so the status window can check it. The port must match what Cloudflare points at.');
   SetupPage.Add('Hostname you chose (e.g. accounting.welovemining.co.za):', False);
   SetupPage.Add('Cloudflare connector token:', False);
   SetupPage.Add('Port on this PC:', False);
@@ -157,11 +157,36 @@ begin
            ExpandConstant('{app}\wlm-accounting-service.out.log'), mbError, MB_OK);
 end;
 
+function ServiceExists(const Name: String): Boolean;
+var
+  Code: Integer;
+begin
+  // sc.exe answers 0 when the service is there and 1060 when it isn't.
+  Result := Exec(ExpandConstant('{sys}\sc.exe'), 'query ' + Name, '',
+                 SW_HIDE, ewWaitUntilTerminated, Code) and (Code = 0);
+end;
+
 procedure InstallTunnel(const Token: String);
 var
   Code: Integer;
 begin
   if Token = '' then Exit;
+
+  // A second `service install` does not add a second tunnel — it fights with
+  // the service that is already there. On a PC where the CRM reaches the
+  // outside through its own tunnel, that would take the CRM down to put the
+  // books up. One tunnel can carry both hostnames, so the right move is to add
+  // a hostname to the existing one, and this installer must not touch it.
+  if ServiceExists('cloudflared') then
+  begin
+    MsgBox('This PC already runs a Cloudflare tunnel, so the token was ignored — deliberately.' + #13#10 + #13#10 +
+           'Installing a second tunnel service here would disturb the one already running, which is likely what your CRM goes through.' + #13#10 + #13#10 +
+           'Instead, in Cloudflare open the tunnel this PC already uses, and add a public hostname:' + #13#10 +
+           '    Service: HTTP   ->   127.0.0.1:' + Trim(SetupPage.Values[2]) + #13#10 + #13#10 +
+           'It starts working within seconds, with nothing further to install. The server itself is installed and running.',
+           mbInformation, MB_OK);
+    Exit;
+  end;
 
   // `service install <token>` is the whole tunnel setup in one call: no login,
   // no credentials file to keep safe, no config.yml. Cloudflare holds which
