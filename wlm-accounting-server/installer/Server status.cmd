@@ -4,7 +4,7 @@ rem Answers the only question worth asking when the phone stops syncing: which
 rem half is down, the server or the tunnel? Checks them separately and says so.
 
 if exist "%~dp0settings.cmd" call "%~dp0settings.cmd"
-if "%WLM_PORT%"=="" set WLM_PORT=4600
+if "%WLM_PORT%"=="" set WLM_PORT=4610
 
 echo.
 echo   WLM Accounting Server

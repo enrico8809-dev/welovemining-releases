@@ -144,7 +144,7 @@ jobs:
 
             During install you are asked for a hostname and a Cloudflare
             connector token — get both from Cloudflare under Zero Trust →
-            Networks → Tunnels, pointing the hostname at `http://127.0.0.1:4600`.
+            Networks → Tunnels, pointing the hostname at `http://127.0.0.1:4610`.
             Both boxes can be left empty and done later.
 
             Afterwards, **Server status** on the desktop says whether the server

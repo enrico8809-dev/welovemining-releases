@@ -4,7 +4,7 @@
   reboot without anybody remembering to start anything.
 
   The installer substitutes {{PORT}} and {{DATADIR}} with what you chose. For a
-  manual install, replace them by hand (4600 and C:\ProgramData\WLM Accounting
+  manual install, replace them by hand (4610 and C:\ProgramData\WLM Accounting
   are the defaults) and run `wlm-accounting-service.exe install`.
 
   The data directory is named explicitly rather than left to %APPDATA%: a service

@@ -2,7 +2,7 @@ import { createApp } from "./server";
 import { Store, defaultDataPath } from "./store";
 import { newSecret } from "./auth";
 
-const PORT = Number(process.env.PORT ?? 4600);
+const PORT = Number(process.env.PORT ?? 4610);
 // Bound to loopback on purpose: the only way in is the Cloudflare tunnel, which
 // connects outbound from this machine. Nothing is ever exposed on the LAN or
 // through a forwarded port.

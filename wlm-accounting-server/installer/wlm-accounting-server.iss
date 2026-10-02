@@ -69,7 +69,7 @@ begin
   SetupPage.Add('Hostname you chose (e.g. accounting.welovemining.co.za):', False);
   SetupPage.Add('Cloudflare connector token:', False);
   SetupPage.Add('Port on this PC:', False);
-  SetupPage.Values[2] := '4600';
+  SetupPage.Values[2] := '4610';
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -82,7 +82,7 @@ begin
     Port := StrToIntDef(Trim(SetupPage.Values[2]), 0);
     if (Port < 1) or (Port > 65535) then
     begin
-      MsgBox('That port number is not usable. 4600 is the default.', mbError, MB_OK);
+      MsgBox('That port number is not usable. 4610 is the default.', mbError, MB_OK);
       Result := False;
     end;
   end;
@@ -206,7 +206,7 @@ begin
   if CurStep = ssPostInstall then
   begin
     Port := Trim(SetupPage.Values[2]);
-    if Port = '' then Port := '4600';
+    if Port = '' then Port := '4610';
     Host := Trim(SetupPage.Values[0]);
     Token := Trim(SetupPage.Values[1]);
 
