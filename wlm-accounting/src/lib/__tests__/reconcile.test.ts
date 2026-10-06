@@ -232,6 +232,36 @@ describe("closing balance from a statement", () => {
   it("returns null when the export has no balance column", () => {
     expect(closingBalanceFromStatement([line({ id: "a", amount: 100 })])).toBeNull();
   });
+
+  // A month's bank charges all land on the last day, so the closing date is
+  // shared by several rows and the date alone cannot say which is last. Taking
+  // the wrong one moves the closing balance by whatever the rest come to, and
+  // the reconciliation then reports a difference that exists nowhere but here.
+  it("takes the last of several rows sharing the closing date", () => {
+    const lines = [
+      line({ id: "a", amount: -139, date: "2026-09-28", balance: 17605 }),
+      line({ id: "b", amount: -10200, date: "2026-09-30", balance: 7034 }),
+      line({ id: "c", amount: -550, date: "2026-09-30", balance: 6484 }),
+    ];
+    expect(closingBalanceFromStatement(lines)).toBe(6484);
+  });
+
+  it("takes the first of them when the export runs newest-first", () => {
+    const lines = [
+      line({ id: "c", amount: -550, date: "2026-09-30", balance: 6484 }),
+      line({ id: "b", amount: -10200, date: "2026-09-30", balance: 7034 }),
+      line({ id: "a", amount: -139, date: "2026-09-28", balance: 17605 }),
+    ];
+    expect(closingBalanceFromStatement(lines)).toBe(6484);
+  });
+
+  it("copes with a statement covering a single day", () => {
+    const lines = [
+      line({ id: "a", amount: -100, date: "2026-09-30", balance: 900 }),
+      line({ id: "b", amount: -200, date: "2026-09-30", balance: 700 }),
+    ];
+    expect(closingBalanceFromStatement(lines)).toBe(700);
+  });
 });
 
 describe("saved reconciliations", () => {

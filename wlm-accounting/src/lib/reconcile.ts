@@ -199,14 +199,38 @@ export function summariseReconciliation(
 
 /**
  * The closing balance a statement implies, when it carries a running balance
- * column. Uses the latest-dated line, since FNB exports newest-first.
+ * column.
+ *
+ * The last day of a statement usually carries several rows — a month's bank
+ * charges land together — and they all share one date, so the date alone
+ * cannot say which of them is last. Taking the wrong one quietly moves the
+ * closing balance by whatever the remaining rows come to, and the
+ * reconciliation then reports a difference that exists only here: a real
+ * statement ending
+ *
+ *     30 Sep  charge  102.00   70.34
+ *     30 Sep  charge    5.50   64.84
+ *
+ * read as closing at 70.34 rather than 64.84.
+ *
+ * What does say which is last is the order of the file itself, so that is what
+ * decides between rows sharing the final date — in whichever direction the
+ * export happens to run.
  */
 export function closingBalanceFromStatement(lines: ParsedLine[]): number | null {
   const withBalance = lines.filter((l) => typeof l.balance === "number");
   if (!withBalance.length) return null;
 
-  const latest = withBalance.reduce((best, l) => (l.date > best.date ? l : best), withBalance[0]);
-  return latest.balance ?? null;
+  const latestDate = withBalance.reduce(
+    (best, l) => (l.date > best ? l.date : best),
+    withBalance[0].date
+  );
+  const onLastDay = withBalance.filter((l) => l.date === latestDate);
+  if (onLastDay.length === 1) return onLastDay[0].balance ?? null;
+
+  const newestFirst = withBalance[0].date > withBalance[withBalance.length - 1].date;
+  const closing = newestFirst ? onLastDay[0] : onLastDay[onLastDay.length - 1];
+  return closing.balance ?? null;
 }
 
 export interface Reconciliation {
