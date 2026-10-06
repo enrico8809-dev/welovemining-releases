@@ -2,23 +2,29 @@ import React, { useMemo, useState } from "react";
 import { Alert, ScrollView, StyleSheet, Text, View } from "react-native";
 import { RouteProp, useNavigation, useRoute } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { ArrowRight, CheckCircle2, Share2 } from "lucide-react-native";
+import { ArrowRight, CheckCircle2, Coins, Share2 } from "lucide-react-native";
 import Header from "../components/Header";
 import Card from "../components/Card";
 import Button from "../components/Button";
 import StatusBadge from "../components/StatusBadge";
 import { useToast } from "../components/Toast";
 import { useLedger } from "../lib/LedgerContext";
+import Field from "../components/Field";
+import CurrencyInput from "../components/CurrencyInput";
 import {
   buildIssuePosting,
   buildPaymentPosting,
+  buildSettlementPosting,
   convertQuoteToInvoice,
+  cryptoDue,
+  cryptoOption,
   docTotal,
   lineTotal,
 } from "../lib/invoices";
 import { accountName } from "../lib/accounting";
+import { CRYPTO_ACCOUNT, displayDecimals, findAsset, zarForUnits } from "../lib/crypto";
 import { buildDocHtml, sharePdf } from "../lib/pdf";
-import { abs, fmt, fmtDate, todayISO } from "../lib/format";
+import { abs, fmt, fmtDate, fmtUnits, parseAmount, todayISO } from "../lib/format";
 import { C, R, S, T } from "../lib/theme";
 import { RootStackParamList } from "../navigation/routes";
 
@@ -33,9 +39,17 @@ export default function DocDetailScreen() {
 
   const doc = docs.find((d) => d.id === route.params.docId);
 
+  const [settling, setSettling] = useState(false);
+  const [unitsIn, setUnitsIn] = useState("");
+  const [zarIn, setZarIn] = useState("");
+
   const postings = useMemo(() => {
     if (!doc) return [];
-    return [buildIssuePosting(doc), buildPaymentPosting(doc)].filter(Boolean);
+    return [
+      buildIssuePosting(doc),
+      buildPaymentPosting(doc),
+      buildSettlementPosting(doc),
+    ].filter(Boolean);
   }, [doc]);
 
   if (!doc) {
@@ -50,9 +64,53 @@ export default function DocDetailScreen() {
   const total = docTotal(doc);
   const isInvoice = doc.kind === "invoice";
 
+  const cryptoAsset = doc.crypto ? findAsset(settings.crypto, doc.crypto.asset) : undefined;
+  const coinsDue = doc.crypto ? cryptoDue(doc) : 0;
+  const canSettleInCrypto = settings.crypto.assets.some((a) => !!a.symbol.trim());
+
   const markPaid = () => {
-    saveDoc({ ...doc, status: "paid", paidDate: todayISO() });
+    saveDoc({ ...doc, status: "paid", paidDate: todayISO(), settlement: undefined });
     toast.show("Marked paid — receivable cleared, no new income booked");
+  };
+
+  /** Opens the coin panel, pre-filled with what was asked for at today's rate. */
+  const startCryptoSettlement = () => {
+    const units = coinsDue > 0 ? coinsDue : 0;
+    const rate = cryptoAsset?.rateZar ?? settings.crypto.assets[0]?.rateZar ?? 0;
+    setUnitsIn(units > 0 ? String(units) : "");
+    setZarIn(units > 0 && rate > 0 ? abs(zarForUnits(units, rate)) : abs(total));
+    setSettling(true);
+  };
+
+  const confirmCryptoSettlement = () => {
+    const units = parseAmount(unitsIn);
+    const zar = parseAmount(zarIn);
+    if (!Number.isFinite(units) || units <= 0) {
+      toast.show("Enter how many coins arrived", "error");
+      return;
+    }
+    if (!Number.isFinite(zar) || zar <= 0) {
+      toast.show("Enter what those coins were worth in rands", "error");
+      return;
+    }
+
+    const symbol = doc.crypto?.asset ?? settings.crypto.assets[0]?.symbol ?? "";
+    saveDoc({
+      ...doc,
+      status: "paid",
+      paidDate: todayISO(),
+      settlement: { account: CRYPTO_ACCOUNT, asset: symbol, units, zar },
+    });
+    setSettling(false);
+
+    const difference = total - zar;
+    toast.show(
+      Math.abs(difference) < 0.005
+        ? "Marked paid — coins in the wallet, receivable cleared"
+        : `Marked paid — receivable cleared, R ${abs(difference)} ${
+            difference > 0 ? "rate loss" : "rate gain"
+          } posted`
+    );
   };
 
   const sharePdfDoc = async () => {
@@ -67,7 +125,14 @@ export default function DocDetailScreen() {
   };
 
   const convert = () => {
-    const invoice = convertQuoteToInvoice(doc, docs);
+    // Re-fix the coin rate on the way through: a quote accepted three weeks
+    // later should not bill coins at a three-week-old rate.
+    const asset = doc.crypto ? findAsset(settings.crypto, doc.crypto.asset) : undefined;
+    const invoice = convertQuoteToInvoice(
+      doc,
+      docs,
+      asset && asset.rateZar > 0 ? cryptoOption(asset) : undefined
+    );
     saveDoc({ ...doc, status: "accepted", convertedToId: invoice.id });
     saveDoc(invoice);
     toast.show(`Converted to ${invoice.number}`);
@@ -114,6 +179,21 @@ export default function DocDetailScreen() {
             <MetaRow label={isInvoice ? "Invoice date" : "Quote date"} value={fmtDate(doc.date)} />
             {doc.dueDate && <MetaRow label="Due" value={fmtDate(doc.dueDate)} />}
             {doc.paidDate && <MetaRow label="Paid" value={fmtDate(doc.paidDate)} />}
+            {!!doc.crypto && doc.status !== "paid" && coinsDue > 0 && (
+              <MetaRow
+                label={`Or in ${doc.crypto.asset}`}
+                value={`${fmtUnits(coinsDue, doc.crypto.decimals)} at R ${abs(doc.crypto.rateZar)}`}
+              />
+            )}
+            {!!doc.settlement?.units && (
+              <MetaRow
+                label="Settled in"
+                value={`${fmtUnits(
+                  doc.settlement.units,
+                  displayDecimals(doc.settlement.units)
+                )} ${doc.settlement.asset ?? ""}`}
+              />
+            )}
             <MetaRow label="Income account" value={accountName(accounts, doc.incomeAccount)} />
           </View>
         </Card>
@@ -176,8 +256,66 @@ export default function DocDetailScreen() {
           icon={<Share2 color={C.bg} size={18} />}
         />
 
-        {isInvoice && doc.status === "sent" && (
-          <Button label="Mark as paid" variant="secondary" onPress={markPaid} />
+        {isInvoice && doc.status === "sent" && !settling && (
+          <>
+            <Button
+              label={canSettleInCrypto ? "Mark as paid — into FNB" : "Mark as paid"}
+              variant="secondary"
+              onPress={markPaid}
+            />
+            {canSettleInCrypto && (
+              <Button
+                label="Mark as paid — in crypto"
+                variant="secondary"
+                onPress={startCryptoSettlement}
+                icon={<Coins color={C.text} size={16} />}
+              />
+            )}
+          </>
+        )}
+
+        {/* What actually arrived, rather than what was asked for. The rate moves
+            between issuing an invoice and being paid for it, and the wallet has
+            to carry the coins that turned up or it will never agree with the
+            exchange again. */}
+        {isInvoice && doc.status === "sent" && settling && (
+          <Card index={3} title="PAID IN CRYPTO">
+            <Text style={styles.settleNote}>
+              {coinsDue > 0
+                ? `This invoice asked for ${fmtUnits(coinsDue, doc.crypto!.decimals)} ${
+                    doc.crypto!.asset
+                  }. Enter what actually landed.`
+                : "Enter what landed in the wallet."}
+            </Text>
+            <View style={styles.settleSpacer} />
+            <Field
+              label={`COINS RECEIVED${doc.crypto ? ` (${doc.crypto.asset})` : ""}`}
+              value={unitsIn}
+              onChangeText={setUnitsIn}
+              placeholder="0.00"
+              keyboardType="decimal-pad"
+              mono
+            />
+            <View style={styles.settleSpacer} />
+            <Text style={styles.settleLabel}>WORTH IN RANDS ON THE DAY</Text>
+            <CurrencyInput value={zarIn} onChangeText={setZarIn} />
+            <Text style={styles.settleNote}>
+              Invoiced {fmt(total)}. Any difference is the rate moving, and is
+              posted to Crypto Gains / (Losses) — the receivable still clears in
+              full, because the customer sent what they were asked for.
+            </Text>
+            <Button
+              label="Confirm payment"
+              onPress={confirmCryptoSettlement}
+              style={{ marginTop: S.md }}
+            />
+            <Button
+              label="Cancel"
+              variant="ghost"
+              onPress={() => setSettling(false)}
+              style={{ marginTop: S.sm }}
+            />
+          </Card>
         )}
         {isInvoice && doc.status === "draft" && (
           <Button
@@ -250,6 +388,9 @@ const styles = StyleSheet.create({
   totalLabel: { ...T.bodyBold, color: C.text },
   totalValue: { ...T.amount, color: C.text },
   none: { ...T.small, color: C.mute, lineHeight: 19 },
+  settleNote: { ...T.small, color: C.mute, lineHeight: 19, marginTop: S.sm },
+  settleLabel: { ...T.label, color: C.mute, marginBottom: S.sm },
+  settleSpacer: { height: S.lg },
   posting: {
     backgroundColor: C.panel2,
     borderRadius: R.md,

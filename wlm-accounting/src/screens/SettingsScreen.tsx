@@ -12,7 +12,13 @@ import { useToast } from "../components/Toast";
 import { useLedger } from "../lib/LedgerContext";
 import { exportLedger, importLedger } from "../lib/backup";
 import { LogoPermissionError, logoSizeKb, pickCompanyLogo } from "../lib/logo";
-import { MONTHS } from "../lib/format";
+import {
+  assetReadiness,
+  newCryptoAsset,
+  rateAgeDays,
+  CryptoAsset,
+} from "../lib/crypto";
+import { MONTHS, fmt, fmtUnits, todayISO } from "../lib/format";
 import { APP_VERSION } from "../lib/version";
 import { C, R, S, T } from "../lib/theme";
 import { RootStackParamList } from "../navigation/routes";
@@ -20,12 +26,37 @@ import { RootStackParamList } from "../navigation/routes";
 export default function SettingsScreen() {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const toast = useToast();
-  const { settings, updateSettings, exportSnapshot, replaceLedger, txns, docs, cloud } =
-    useLedger();
+  const {
+    settings,
+    updateSettings,
+    exportSnapshot,
+    replaceLedger,
+    txns,
+    docs,
+    cloud,
+    cryptoPositions,
+  } = useLedger();
   const [busy, setBusy] = useState<"export" | "import" | "logo" | null>(null);
 
   const patchBank = (patch: Partial<typeof settings.bank>) =>
     updateSettings({ bank: { ...settings.bank, ...patch } });
+
+  const patchCrypto = (patch: Partial<typeof settings.crypto>) =>
+    updateSettings({ crypto: { ...settings.crypto, ...patch } });
+
+  const patchAsset = (index: number, patch: Partial<CryptoAsset>) =>
+    patchCrypto({
+      assets: settings.crypto.assets.map((a, i) => (i === index ? { ...a, ...patch } : a)),
+    });
+
+  /** Changing a rate stamps the day, so a stale one can be seen to be stale. */
+  const setRate = (index: number, rateZar: number) =>
+    patchAsset(index, { rateZar, rateSetOn: todayISO() });
+
+  const addAsset = () => patchCrypto({ assets: [...settings.crypto.assets, newCryptoAsset()] });
+
+  const removeAsset = (index: number) =>
+    patchCrypto({ assets: settings.crypto.assets.filter((_, i) => i !== index) });
 
   const handlePickLogo = async () => {
     setBusy("logo");
@@ -257,7 +288,139 @@ export default function SettingsScreen() {
           />
         </Card>
 
-        <Card index={3} title="INVOICING">
+        <Card index={3} title="CRYPTO">
+          <Text style={styles.note}>
+            Coins the business takes and pays in. The invoice stays in rands —
+            this is how it can be settled. SARS treats a coin as an asset, not a
+            currency, so the rand figure is still what was earned.
+          </Text>
+          <Pressable
+            onPress={() => patchCrypto({ offerOnDocs: !settings.crypto.offerOnDocs })}
+            style={styles.settingRow}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={styles.settingLabel}>Offer crypto on documents</Text>
+              <Text style={styles.settingNote}>
+                Adds a pay-in-coins panel to invoices and quotes
+              </Text>
+            </View>
+            <Text style={styles.settingValue}>
+              {settings.crypto.offerOnDocs ? "On" : "Off"}
+            </Text>
+          </Pressable>
+          <Gap />
+          <Field
+            label="EXCHANGE / WALLET"
+            value={settings.crypto.platform}
+            onChangeText={(v) => patchCrypto({ platform: v })}
+            placeholder="Binance"
+            autoCapitalize="words"
+          />
+
+          {settings.crypto.assets.map((asset, index) => {
+            const missing = assetReadiness(asset);
+            const age = rateAgeDays(asset);
+            const held = cryptoPositions.find(
+              (p) => p.asset.toUpperCase() === asset.symbol.trim().toUpperCase()
+            );
+            return (
+              <View key={index} style={styles.asset}>
+                <View style={styles.assetHead}>
+                  <Text style={styles.assetTitle}>
+                    {asset.symbol.trim() || `COIN ${index + 1}`}
+                  </Text>
+                  {settings.crypto.assets.length > 1 && (
+                    <Pressable hitSlop={10} onPress={() => removeAsset(index)}>
+                      <Trash2 color={C.mute} size={15} />
+                    </Pressable>
+                  )}
+                </View>
+
+                <Field
+                  label="SYMBOL"
+                  value={asset.symbol}
+                  onChangeText={(v) => patchAsset(index, { symbol: v.toUpperCase() })}
+                  placeholder="USDT"
+                  autoCapitalize="characters"
+                  mono
+                />
+                <Gap />
+                <Field
+                  label="NAME"
+                  value={asset.name}
+                  onChangeText={(v) => patchAsset(index, { name: v })}
+                  placeholder="Tether USD"
+                  autoCapitalize="words"
+                />
+                <Gap />
+                {/* As important as the address. USDT sent to a TRC20 address
+                    over ERC20 cannot be recovered, and it is the customer who
+                    has to get it right off a printed page. */}
+                <Field
+                  label="NETWORK"
+                  value={asset.network}
+                  onChangeText={(v) => patchAsset(index, { network: v })}
+                  placeholder="TRC20 (Tron)"
+                />
+                <Gap />
+                <Field
+                  label="DEPOSIT ADDRESS"
+                  value={asset.address}
+                  onChangeText={(v) => patchAsset(index, { address: v.trim() })}
+                  placeholder="Paste from Binance → Deposit"
+                  autoCapitalize="none"
+                  mono
+                />
+                <Gap />
+                <Field
+                  label="MEMO / TAG (ONLY IF REQUIRED)"
+                  value={asset.memo}
+                  onChangeText={(v) => patchAsset(index, { memo: v.trim() })}
+                  placeholder="Usually blank"
+                  autoCapitalize="none"
+                  mono
+                />
+                <Gap />
+                <Text style={styles.settingLabel}>RANDS PER {asset.symbol || "COIN"}</Text>
+                <NumberField
+                  value={asset.rateZar}
+                  onChangeValue={(n) => setRate(index, n)}
+                  placeholder="18.50"
+                />
+                <Text style={styles.settingNote}>
+                  {age === null
+                    ? "Typed by you — Binance has no rand pair to read it from, and the rate that counts is the one you actually got."
+                    : age === 0
+                      ? "Set today."
+                      : `Set ${age} day${age === 1 ? "" : "s"} ago — worth checking before you quote.`}
+                </Text>
+
+                {!!missing && <Text style={styles.assetWarn}>{missing}</Text>}
+
+                {!!held && (
+                  <Text style={styles.assetHeld}>
+                    Holding {fmtUnits(held.units, asset.decimals)} {asset.symbol}, carried at{" "}
+                    {fmt(held.costZar)}
+                    {held.rateZar > 0
+                      ? ` · worth ${fmt(held.marketZar)} at the rate above (${
+                          held.unrealisedZar >= 0 ? "+" : "−"
+                        }${fmt(Math.abs(held.unrealisedZar))} unrealised, not in the books)`
+                      : ""}
+                  </Text>
+                )}
+              </View>
+            );
+          })}
+
+          <Button
+            label="Add another coin"
+            variant="secondary"
+            onPress={addAsset}
+            style={{ marginTop: S.lg }}
+          />
+        </Card>
+
+        <Card index={4} title="INVOICING">
           <Pressable onPress={cycleFyMonth} style={styles.settingRow}>
             <View style={{ flex: 1 }}>
               <Text style={styles.settingLabel}>Financial year starts</Text>
@@ -294,7 +457,7 @@ export default function SettingsScreen() {
           />
         </Card>
 
-        <Card index={4} title="IMPORT & LANDED COST">
+        <Card index={5} title="IMPORT & LANDED COST">
           <Text style={styles.note}>
             Sets what a miner really costs landed in Rand. No customs duty applies to this
             class of electronics; import VAT is excluded while you're not VAT-registered.
@@ -409,7 +572,7 @@ export default function SettingsScreen() {
           </Text>
         </Card>
 
-        <Card index={5} title="CLOUD" onPress={() => nav.navigate("Cloud")}>
+        <Card index={6} title="CLOUD" onPress={() => nav.navigate("Cloud")}>
           <View style={styles.cloudRow}>
             <View style={[styles.cloudIcon, cloud && { borderColor: C.green }]}>
               {cloud ? (
@@ -434,7 +597,7 @@ export default function SettingsScreen() {
           </View>
         </Card>
 
-        <Card index={6} title="DATA">
+        <Card index={7} title="DATA">
           <Text style={styles.statText}>
             {txns.length} transaction{txns.length === 1 ? "" : "s"} · {docs.length} document
             {docs.length === 1 ? "" : "s"}
@@ -459,7 +622,7 @@ export default function SettingsScreen() {
             Everything lives on this phone only. Export regularly — a lost phone is a lost book.
           </Text>
         </Card>
-        <Card index={7} title="ABOUT">
+        <Card index={8} title="ABOUT">
           <Text style={styles.about}>
             WLM Accounting records every transaction once and categorises it once, using
             double-entry underneath. You pick what happened; the app books the debit and credit.
@@ -521,6 +684,21 @@ const styles = StyleSheet.create({
   tierCost: { flex: 1 },
   tierRemove: { paddingBottom: S.md + 2, paddingHorizontal: S.xs },
   note: { ...T.caption, color: C.mute, marginTop: S.md, lineHeight: 17 },
+  asset: {
+    marginTop: S.lg,
+    paddingTop: S.lg,
+    borderTopWidth: 1,
+    borderTopColor: C.line,
+  },
+  assetHead: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: S.md,
+  },
+  assetTitle: { ...T.label, color: C.orange },
+  assetWarn: { ...T.caption, color: C.orange, marginTop: S.md, lineHeight: 17 },
+  assetHeld: { ...T.caption, color: C.textDim, marginTop: S.md, lineHeight: 17 },
   about: { ...T.small, color: C.textDim, lineHeight: 21 },
   version: { ...T.caption, color: C.mute, marginTop: S.md },
 });

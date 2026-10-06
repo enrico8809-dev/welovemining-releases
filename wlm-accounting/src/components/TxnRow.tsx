@@ -1,8 +1,9 @@
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { ArrowDownLeft, ArrowUpRight, Lock } from "lucide-react-native";
-import { Account, Txn, accountName, counterAccountId, isMoneyIn } from "../lib/accounting";
-import { abs, fmtDateShort } from "../lib/format";
+import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Lock } from "lucide-react-native";
+import { Account, Txn, accountName, counterAccountId, txnFlow } from "../lib/accounting";
+import { abs, fmtDateShort, fmtUnits } from "../lib/format";
+import { displayDecimals } from "../lib/crypto";
 import { C, R, S, T } from "../lib/theme";
 import * as haptics from "../lib/haptics";
 
@@ -13,9 +14,11 @@ interface TxnRowProps {
 }
 
 export default function TxnRow({ txn, accounts, onPress }: TxnRowProps) {
-  const moneyIn = isMoneyIn(txn);
-  const color = moneyIn ? C.green : C.red;
-  const Arrow = moneyIn ? ArrowDownLeft : ArrowUpRight;
+  const flow = txnFlow(txn);
+  const color = flow === "in" ? C.green : flow === "out" ? C.red : C.mute;
+  const Arrow =
+    flow === "in" ? ArrowDownLeft : flow === "out" ? ArrowUpRight : ArrowLeftRight;
+  const sign = flow === "in" ? "+" : flow === "out" ? "−" : "";
   const locked = !!txn.sourceDoc;
 
   return (
@@ -43,9 +46,18 @@ export default function TxnRow({ txn, accounts, onPress }: TxnRowProps) {
         </View>
       </View>
 
-      <Text style={[styles.amount, { color }]}>
-        {moneyIn ? "+" : "−"} {abs(txn.amount)}
-      </Text>
+      <View style={styles.amounts}>
+        <Text style={[styles.amount, { color }]}>
+          {sign} {abs(txn.amount)}
+        </Text>
+        {/* The coins as well as the rands: the rand figure is the entry, but the
+            units are what gets checked against the exchange. */}
+        {!!txn.crypto && (
+          <Text style={styles.units}>
+            {fmtUnits(txn.crypto.units, displayDecimals(txn.crypto.units))} {txn.crypto.asset}
+          </Text>
+        )}
+      </View>
     </Pressable>
   );
 }
@@ -69,6 +81,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   main: { flex: 1 },
+  amounts: { alignItems: "flex-end" },
+  units: { ...T.caption, color: C.mute, marginTop: 2 },
   desc: { ...T.bodyBold, color: C.text },
   metaRow: { flexDirection: "row", alignItems: "center", gap: S.xs + 2, marginTop: 3 },
   meta: { ...T.caption, color: C.mute, flexShrink: 1 },

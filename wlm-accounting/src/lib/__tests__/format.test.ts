@@ -1,4 +1,12 @@
-import { abs, fmt, fmtSigned, fmtWhole, parseAmount } from "../format";
+import {
+  abs,
+  fmt,
+  fmtBracketed,
+  fmtSigned,
+  fmtUnits,
+  fmtWhole,
+  parseAmount,
+} from "../format";
 
 describe("rand formatting", () => {
   it("uses the specified format: R 1,234.56", () => {
@@ -79,5 +87,39 @@ describe("parsing what was typed", () => {
     expect(parseAmount("twelve")).toBeNaN();
     expect(parseAmount("12..5")).toBeNaN();
     expect(parseAmount("")).toBeNaN();
+  });
+});
+
+describe("fmtUnits", () => {
+  it("pads a stablecoin balance to cents", () => {
+    expect(fmtUnits(5399.5, 2)).toBe("5,399.50");
+  });
+
+  it("keeps bitcoin's eight places rather than rounding them away", () => {
+    expect(fmtUnits(0.05263158, 8)).toBe("0.05263158");
+  });
+
+  it("groups thousands like every other figure in the app", () => {
+    expect(fmtUnits(1234567.891, 2)).toBe("1,234,567.89");
+  });
+
+  it("shows whole units with no point when asked for none", () => {
+    expect(fmtUnits(1200, 0)).toBe("1,200");
+  });
+});
+
+describe("fmtBracketed", () => {
+  it("leaves a positive figure alone", () => {
+    expect(fmtBracketed(1200.5)).toBe("1,200.50");
+  });
+
+  // A loss on crypto is a negative income line. Through abs() it would print as
+  // income of that size while the total it belongs to had gone down by it.
+  it("brackets a negative rather than dropping the sign", () => {
+    expect(fmtBracketed(-500)).toBe("(500.00)");
+  });
+
+  it("does not bracket a zero", () => {
+    expect(fmtBracketed(0)).toBe("0.00");
   });
 });

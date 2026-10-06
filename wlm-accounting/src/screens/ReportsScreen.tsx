@@ -23,7 +23,7 @@ import {
 } from "../lib/accounting";
 import { PERIOD_OPTIONS, PeriodId, buildPeriod, describePeriod } from "../lib/period";
 import { reconciledToDate } from "../lib/reconcile";
-import { abs, fmt, fmtDate } from "../lib/format";
+import { abs, fmt, fmtBracketed, fmtDate } from "../lib/format";
 import { C, R, S, T } from "../lib/theme";
 import { TabScreenNavigation } from "../navigation/routes";
 
@@ -269,7 +269,7 @@ function LineRow({
       <Text style={styles.lineName} numberOfLines={1}>
         {name}
       </Text>
-      <Text style={styles.lineAmount}>{abs(amount)}</Text>
+      <Text style={styles.lineAmount}>{fmtBracketed(amount)}</Text>
       <ChevronRight color={C.mute} size={14} />
     </Pressable>
   );

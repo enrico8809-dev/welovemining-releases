@@ -5,6 +5,8 @@ import {
   BusinessDoc,
   DocKind,
   LineItem,
+  cryptoDue,
+  cryptoOption,
   docTotal,
   lineTotal,
   newDoc,
@@ -12,7 +14,8 @@ import {
 } from "@engine/invoices";
 import { computeLandedCost, suggestedPrice } from "@engine/inventory";
 import { Product, productLabel } from "@engine/catalogue";
-import { abs, fmt, parseAmount, toISO, todayISO } from "@engine/format";
+import { findAsset, payableAssets } from "@engine/crypto";
+import { abs, fmt, fmtUnits, parseAmount, toISO, todayISO } from "@engine/format";
 import {
   DateInput,
   Field,
@@ -50,12 +53,32 @@ export default function DocEditor({
   const total = docTotal(doc);
   const isInvoice = doc.kind === "invoice";
 
+  // Only coins with an address and a rate can be put in front of a customer.
+  const payable = useMemo(() => payableAssets(settings.crypto), [settings.crypto]);
+  const cryptoAsset = doc.crypto ? findAsset(settings.crypto, doc.crypto.asset) : undefined;
+  const rateMoved =
+    !!doc.crypto && !!cryptoAsset && Math.abs(cryptoAsset.rateZar - doc.crypto.rateZar) >= 0.005;
+
   const patch = (p: Partial<BusinessDoc>) => setDoc((d) => ({ ...d, ...p }));
 
   const patchItem = (id: string, p: Partial<LineItem>) =>
     setDoc((d) => ({ ...d, items: d.items.map((i) => (i.id === id ? { ...i, ...p } : i)) }));
 
   const addLine = () => setDoc((d) => ({ ...d, items: [...d.items, newLineItem()] }));
+
+  /**
+   * Offering a coin fixes its rate onto the document. From then on the figure
+   * the customer was shown stays put even if the rate in Settings moves, which
+   * is the whole point of putting a price on a piece of paper.
+   */
+  const chooseCrypto = (symbol: string) => {
+    if (!symbol) {
+      patch({ crypto: undefined });
+      return;
+    }
+    const asset = findAsset(settings.crypto, symbol);
+    if (asset) patch({ crypto: cryptoOption(asset) });
+  };
 
   const removeLine = (id: string) =>
     setDoc((d) => ({
@@ -260,11 +283,47 @@ export default function DocEditor({
           </Field>
         </div>
 
+        {settings.crypto.offerOnDocs && payable.length > 0 && (
+          <div className="grid cols-2">
+            <Field label="ALSO ACCEPT CRYPTO">
+              <Select
+                value={doc.crypto?.asset ?? ""}
+                onChange={chooseCrypto}
+                options={[
+                  { id: "", label: "Rands only" },
+                  ...payable.map((a) => ({ id: a.symbol, label: `Also in ${a.symbol}` })),
+                ]}
+              />
+            </Field>
+            {!!doc.crypto && (
+              <Field label={`COMES TO (AT R ${abs(doc.crypto.rateZar)})`}>
+                <div className="row" style={{ gap: 10, alignItems: "center", minHeight: 38 }}>
+                  <span className="num" style={{ fontSize: 15 }}>
+                    {fmtUnits(cryptoDue(doc), doc.crypto.decimals)} {doc.crypto.asset}
+                  </span>
+                  {rateMoved && (
+                    <button
+                      className="btn ghost small"
+                      onClick={() => chooseCrypto(doc.crypto!.asset)}
+                      title={`Settings now say R ${abs(cryptoAsset!.rateZar)}`}
+                    >
+                      Use today's rate
+                    </button>
+                  )}
+                </div>
+              </Field>
+            )}
+          </div>
+        )}
+
         <div className="hint">
           No VAT — WeLoveMining is not VAT-registered.{" "}
           {isInvoice
             ? "Issuing posts Dr Trade Receivables / Cr Sales once. Marking it paid later posts Dr Bank / Cr Trade Receivables; it never books income again."
             : "Quotes post nothing to the books until you convert them to an invoice."}
+          {doc.crypto
+            ? " The document stays in rands; the coin figure is a way of paying it at the rate fixed above. The address is printed on invoices only."
+            : ""}
         </div>
       </div>
 

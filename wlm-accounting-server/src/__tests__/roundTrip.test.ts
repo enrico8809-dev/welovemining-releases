@@ -25,7 +25,15 @@ import { createApp } from "../server";
 import { Store } from "../store";
 import { newSecret } from "../auth";
 
-import { Txn } from "../../../wlm-accounting/src/lib/accounting";
+import { SEED_ACCOUNTS, Txn, computeBalances } from "../../../wlm-accounting/src/lib/accounting";
+import {
+  CRYPTO_ACCOUNT,
+  CRYPTO_GAINS_ACCOUNT,
+  DEFAULT_CRYPTO,
+  cryptoDisposalPostings,
+  cryptoHoldings,
+} from "../../../wlm-accounting/src/lib/crypto";
+import { BusinessDoc, postingsForDocs } from "../../../wlm-accounting/src/lib/invoices";
 import { EMPTY_LEDGER, Ledger } from "../../../wlm-accounting/src/lib/ledgerModel";
 import { live, stamp, tombstone } from "../../../wlm-accounting/src/lib/sync";
 import {
@@ -408,5 +416,147 @@ describe("what a viewer can do", () => {
     // The phone should never see the viewer's entry.
     await phone.sync();
     expect(phone.find("v")).toBeUndefined();
+  });
+});
+
+/**
+ * Coins across two devices.
+ *
+ * Worth its own section because a crypto entry carries something no other entry
+ * does — the units — and because the gain or loss on paying coins out is never
+ * synced at all. It is worked out from the entries on each device, so the two
+ * machines agree only if they are working from the same entries in the same
+ * order. If they ever disagree, the two apps show two different profits for the
+ * same month, which is exactly the class of bug the whole ledger is built to
+ * make impossible.
+ */
+describe("crypto across devices", () => {
+  const received: Txn = {
+    id: "c1",
+    date: "2026-01-10",
+    desc: "USDT from Mining Co",
+    amount: 100_000,
+    debit: CRYPTO_ACCOUNT,
+    credit: "sales",
+    recipe: "crypto_in",
+    crypto: { asset: "USDT", units: 5_400 },
+  };
+
+  const paidOut: Txn = {
+    id: "c2",
+    date: "2026-02-10",
+    desc: "Deposit to supplier",
+    amount: 95_000,
+    debit: "inventory",
+    credit: CRYPTO_ACCOUNT,
+    recipe: "crypto_buy_stock",
+    crypto: { asset: "USDT", units: 5_000 },
+  };
+
+  it("carries the units, not just the rands", async () => {
+    const { phone, windows } = await twoDevices();
+
+    phone.capture(received);
+    await phone.sync();
+    await windows.sync();
+
+    expect(windows.find("c1")?.crypto).toEqual({ asset: "USDT", units: 5_400 });
+    expect(windows.find("c1")?.amount).toBe(100_000);
+  });
+
+  it("works the gain out to the same cent on both machines", async () => {
+    const { phone, windows } = await twoDevices();
+
+    phone.capture(received);
+    phone.capture(paidOut);
+    await phone.sync();
+    await windows.sync();
+
+    const onPhone = cryptoDisposalPostings(phone.entries);
+    const onWindows = cryptoDisposalPostings(windows.entries);
+
+    expect(onWindows).toEqual(onPhone);
+    expect(onWindows).toHaveLength(1);
+    expect(onWindows[0].amount).toBeCloseTo(2_407.41, 2);
+
+    // And the same wallet balance, which is the figure checked against Binance.
+    for (const device of [phone, windows]) {
+      const books = [...device.entries, ...cryptoDisposalPostings(device.entries)];
+      const wallet = computeBalances(SEED_ACCOUNTS, books, 0)[CRYPTO_ACCOUNT];
+      const holding = cryptoHoldings(books).get("USDT")!;
+      expect(wallet).toBeCloseTo(holding.costZar, 6);
+      expect(holding.units).toBe(400);
+    }
+  });
+
+  it("is not itself synced — nothing stores a revaluation", async () => {
+    const { phone, windows } = await twoDevices();
+
+    phone.capture(received);
+    phone.capture(paidOut);
+    await phone.sync();
+    await windows.sync();
+
+    // Two entries went over the wire, not three. The gain exists on both
+    // devices because both compute it, not because one sent it.
+    expect(windows.entries.map((t) => t.id).sort()).toEqual(["c1", "c2"]);
+  });
+
+  it("carries an invoice settled in coins, difference and all", async () => {
+    const { phone, windows } = await twoDevices();
+
+    const invoice: BusinessDoc = {
+      id: "d1",
+      kind: "invoice",
+      number: "INV-0001",
+      customer: "Mining Co",
+      date: "2026-03-01",
+      items: [{ id: "li1", description: "Antminer S21", qty: 1, unitPrice: 100_000 }],
+      status: "paid",
+      paidDate: "2026-03-05",
+      incomeAccount: "sales",
+      crypto: { asset: "USDT", rateZar: 18.52, decimals: 2 },
+      settlement: { account: CRYPTO_ACCOUNT, asset: "USDT", units: 5_399.57, zar: 99_500 },
+    };
+
+    phone.ledger = { ...phone.ledger, docs: [stamp(invoice, Date.now())] };
+    await phone.sync();
+    await windows.sync();
+
+    const landed = live(windows.ledger.docs)[0] as BusinessDoc;
+    expect(landed.settlement).toEqual(invoice.settlement);
+    expect(landed.crypto).toEqual(invoice.crypto);
+
+    const balances = computeBalances(SEED_ACCOUNTS, postingsForDocs([landed]), 0);
+    expect(balances[CRYPTO_ACCOUNT]).toBeCloseTo(99_500, 6);
+    expect(balances.receivables).toBeCloseTo(0, 6);
+    expect(-balances.sales).toBeCloseTo(100_000, 6);
+    expect(-balances[CRYPTO_GAINS_ACCOUNT]).toBeCloseTo(-500, 6);
+  });
+
+  it("carries a coin set up on one device to the other", async () => {
+    const { phone, windows } = await twoDevices();
+
+    windows.changeSettings({
+      crypto: {
+        offerOnDocs: true,
+        platform: "Binance",
+        assets: [
+          {
+            ...DEFAULT_CRYPTO.assets[0],
+            address: "TXkJ9f2Qexample",
+            rateZar: 19.2,
+            rateSetOn: "2026-03-01",
+          },
+        ],
+      },
+    });
+    await windows.sync();
+    await phone.sync();
+
+    const asset = phone.ledger.settings.crypto.assets[0];
+    expect(asset.address).toBe("TXkJ9f2Qexample");
+    expect(asset.rateZar).toBe(19.2);
+    expect(asset.network).toBe("TRC20 (Tron)");
   });
 });

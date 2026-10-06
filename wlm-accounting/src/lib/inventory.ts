@@ -13,7 +13,7 @@
 // VAT becomes claimable and belongs here as a separate, recoverable line rather
 // than part of cost.
 
-import { Txn } from "./accounting";
+import { CryptoLeg, Txn } from "./accounting";
 import { Product, unitPriceUsd } from "./catalogue";
 
 export interface ShippingTier {
@@ -105,6 +105,13 @@ export interface StockMovement {
   note?: string;
   /** Links a sale back to the invoice it belongs to, when there is one. */
   docId?: string;
+  /**
+   * Which account paid for a receipt — the bank unless the supplier was paid in
+   * coins. Suppliers of this hardware usually are, so this is not a corner case.
+   */
+  paidFrom?: string;
+  /** The coins handed over for a receipt, when it was paid for in crypto. */
+  crypto?: CryptoLeg;
   /** Set on every change; drives last-write-wins during cloud sync. */
   updatedAt?: number;
   /** Set instead of removing the record, so the deletion reaches other devices. */
@@ -201,6 +208,12 @@ export function summariseInventory(movements: StockMovement[]): InventorySummary
  *   in       Dr Inventory      / Cr Bank            (asset swap, not an expense)
  *   out      Dr Cost of Sales  / Cr Inventory       (cost matched to the sale)
  *   writeoff Dr General Expenses / Cr Inventory     (stock that's gone)
+ *
+ * A receipt paid for in coins credits the wallet instead of the bank and
+ * carries the units across, which is what lets the gain or loss on those coins
+ * be worked out — see lib/crypto. The stock is still valued in rands at what
+ * the coins were worth the day they were sent, because that is what the miners
+ * cost the business.
  */
 export function postingsForMovements(
   movements: StockMovement[],
@@ -219,9 +232,10 @@ export function postingsForMovements(
         desc: `Stock in — ${m.qty} × ${label}`,
         amount: m.valueZar,
         debit: "inventory",
-        credit: "bank",
+        credit: m.paidFrom || "bank",
         recipe: "stock_in",
         sourceDoc: `movement:${m.id}`,
+        ...(m.crypto && m.crypto.units > 0 ? { crypto: m.crypto } : {}),
       });
     } else if (m.kind === "out") {
       out.push({

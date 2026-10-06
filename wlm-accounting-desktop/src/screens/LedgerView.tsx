@@ -6,23 +6,28 @@ import {
   accountName,
   counterAccountId,
   filterByPeriod,
-  isMoneyIn,
   searchTxns,
   sortByDateDesc,
+  txnFlow,
 } from "@engine/accounting";
+import { displayDecimals } from "@engine/crypto";
 import { PERIOD_OPTIONS, PeriodId, buildPeriod, describePeriod } from "@engine/period";
-import { fmtDateShort } from "@engine/format";
+import { fmtDateShort, fmtUnits } from "@engine/format";
 import Screen from "../components/Screen";
 import { Card, EmptyState, Money, Tabs } from "../components/ui";
 import CaptureDialog from "./CaptureDialog";
 import { useToast } from "../components/Toast";
 
-type Flow = "all" | "in" | "out";
+type Flow = "all" | "in" | "out" | "move";
 
+// "Moves" are rands turned into coins and back — money the business already had
+// going from one of its own pockets to another. They are neither in nor out,
+// and counting them as either is how a set of books starts overstating itself.
 const FLOWS: { id: Flow; label: string }[] = [
   { id: "all", label: "All" },
   { id: "in", label: "Money in" },
   { id: "out", label: "Money out" },
+  { id: "move", label: "Transfers" },
 ];
 
 export default function LedgerView() {
@@ -59,19 +64,25 @@ export default function LedgerView() {
   const rows = useMemo(() => {
     let list = filterByPeriod(txns, period);
     if (flow !== "all") {
-      list = list.filter((t) => (flow === "in" ? isMoneyIn(t) : !isMoneyIn(t)));
+      list = list.filter((t) => txnFlow(t) === flow);
     }
     return sortByDateDesc(searchTxns(list, accounts, query));
   }, [txns, period, flow, query, accounts]);
 
   const net = useMemo(
-    () => rows.reduce((sum, t) => sum + (isMoneyIn(t) ? t.amount : -t.amount), 0),
+    () =>
+      rows.reduce((sum, t) => {
+        const direction = txnFlow(t);
+        if (direction === "in") return sum + t.amount;
+        if (direction === "out") return sum - t.amount;
+        return sum;
+      }, 0),
     [rows]
   );
 
   const remove = (txn: Txn) => {
     if (txn.sourceDoc) {
-      toast.show("This entry belongs to an invoice — edit the invoice instead.", "warning");
+      toast.show("Worked out from something else — it can't be deleted on its own.", "warning");
       return;
     }
     removeTxn(txn.id);
@@ -80,7 +91,17 @@ export default function LedgerView() {
 
   const edit = (txn: Txn) => {
     if (txn.sourceDoc) {
-      toast.show("This entry belongs to an invoice — edit the invoice instead.", "warning");
+      // Three kinds of entry are worked out rather than typed, and each is
+      // changed somewhere else: on the invoice, on the product, or on the
+      // entry it was derived from.
+      toast.show(
+        txn.sourceDoc.startsWith("txn:")
+          ? "Worked out from another entry — edit that one instead."
+          : txn.sourceDoc.startsWith("movement:")
+            ? "Belongs to a stock movement — change it from the product."
+            : "This entry belongs to an invoice — edit the invoice instead.",
+        "warning"
+      );
       return;
     }
     setEditing(txn);
@@ -151,7 +172,13 @@ export default function LedgerView() {
                       <td>{accountName(accounts, counterAccountId(t))}</td>
                       <td className="muted">{t.sourceDoc ? "From a document" : t.recipe}</td>
                       <td className="right">
-                        <Money value={isMoneyIn(t) ? t.amount : -t.amount} />
+                        <Money value={txnFlow(t) === "out" ? -t.amount : t.amount} />
+                        {!!t.crypto && (
+                          <div className="hint num">
+                            {fmtUnits(t.crypto.units, displayDecimals(t.crypto.units))}{" "}
+                            {t.crypto.asset}
+                          </div>
+                        )}
                       </td>
                       <td>
                         <div className="row" style={{ gap: 4 }}>

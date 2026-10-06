@@ -22,14 +22,17 @@ import { useLedger } from "../lib/LedgerContext";
 import {
   BusinessDoc,
   LineItem,
+  cryptoDue,
+  cryptoOption,
   docTotal,
   lineTotal,
   newDoc,
   newLineItem,
 } from "../lib/invoices";
 import { computeLandedCost, suggestedPrice } from "../lib/inventory";
+import { findAsset, payableAssets } from "../lib/crypto";
 import { findProduct, productLabel } from "../lib/catalogue";
-import { abs, fmt, parseAmount, toISO, todayISO } from "../lib/format";
+import { abs, fmt, fmtUnits, parseAmount, toISO, todayISO } from "../lib/format";
 import { C, R, S, T } from "../lib/theme";
 import { RootStackParamList } from "../navigation/routes";
 import * as haptics from "../lib/haptics";
@@ -54,6 +57,9 @@ export default function DocEditorScreen() {
     () => accounts.filter((a) => a.type === "income"),
     [accounts]
   );
+
+  // Only coins with an address and a rate can be put in front of a customer.
+  const payable = useMemo(() => payableAssets(settings.crypto), [settings.crypto]);
 
   // Coming back from the catalogue: turn the picked product into a line at the
   // suggested selling price, so a quote can be built straight off the price list.
@@ -98,6 +104,25 @@ export default function DocEditorScreen() {
     haptics.tap();
     setDoc((d) => ({ ...d, items: [...d.items, newLineItem()] }));
   };
+
+  /**
+   * Offering a coin fixes its rate onto the document. From then on the figure
+   * the customer was shown stays put even if the rate in Settings moves, which
+   * is the whole point of putting a price on a piece of paper.
+   */
+  const chooseCrypto = (symbol: string | null) => {
+    haptics.tap();
+    if (!symbol) {
+      patch({ crypto: undefined });
+      return;
+    }
+    const asset = findAsset(settings.crypto, symbol);
+    if (asset) patch({ crypto: cryptoOption(asset) });
+  };
+
+  const cryptoAsset = doc.crypto ? findAsset(settings.crypto, doc.crypto.asset) : undefined;
+  const rateMoved =
+    !!doc.crypto && !!cryptoAsset && Math.abs(cryptoAsset.rateZar - doc.crypto.rateZar) >= 0.005;
 
   const removeItem = (id: string) => {
     haptics.tap();
@@ -261,11 +286,78 @@ export default function DocEditorScreen() {
             </View>
           </Card>
 
-          <Card index={3} accent="orange">
+          {settings.crypto.offerOnDocs && payable.length > 0 && (
+            <Card index={3} title="ALSO ACCEPT CRYPTO">
+              <Text style={styles.note}>
+                The {isInvoice ? "invoice" : "quote"} stays in rands. This adds a
+                panel showing what that comes to in coins, which network to send
+                on and — on an invoice — the address.
+              </Text>
+              <View style={styles.chips}>
+                <Pressable
+                  onPress={() => chooseCrypto(null)}
+                  style={[styles.chip, !doc.crypto && styles.chipOn]}
+                >
+                  <Text style={[styles.chipLabel, !doc.crypto && styles.chipLabelOn]}>
+                    Rands only
+                  </Text>
+                </Pressable>
+                {payable.map((a) => {
+                  const active = doc.crypto?.asset === a.symbol;
+                  return (
+                    <Pressable
+                      key={a.symbol}
+                      onPress={() => chooseCrypto(a.symbol)}
+                      style={[styles.chip, active && styles.chipOn]}
+                    >
+                      <Text style={[styles.chipLabel, active && styles.chipLabelOn]}>
+                        {a.symbol}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              {!!doc.crypto && (
+                <>
+                  <View style={styles.cryptoRow}>
+                    <Text style={styles.cryptoUnits}>
+                      {fmtUnits(cryptoDue(doc), doc.crypto.decimals)} {doc.crypto.asset}
+                    </Text>
+                    <Text style={styles.cryptoRate}>
+                      at R {abs(doc.crypto.rateZar)} / {doc.crypto.asset}
+                    </Text>
+                  </View>
+                  {rateMoved && (
+                    <>
+                      <Text style={styles.rateMoved}>
+                        Settings now say R {abs(cryptoAsset!.rateZar)}. This document is
+                        still on R {abs(doc.crypto.rateZar)}.
+                      </Text>
+                      <Button
+                        label="Use today's rate"
+                        variant="ghost"
+                        onPress={() => chooseCrypto(doc.crypto!.asset)}
+                        style={{ marginTop: S.sm }}
+                      />
+                    </>
+                  )}
+                </>
+              )}
+            </Card>
+          )}
+
+          <Card index={4} accent="orange">
             <View style={styles.totalRow}>
               <Text style={styles.totalLabel}>TOTAL</Text>
               <Text style={styles.totalValue}>{fmt(total)}</Text>
             </View>
+            {!!doc.crypto && (
+              <Text style={styles.vatNote}>
+                Or {fmtUnits(cryptoDue(doc), doc.crypto.decimals)} {doc.crypto.asset} at
+                the rate fixed above.
+              </Text>
+            )}
             <Text style={styles.vatNote}>
               No VAT — WeLoveMining is not VAT-registered yet.
             </Text>
@@ -330,6 +422,15 @@ const styles = StyleSheet.create({
   totalRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   totalLabel: { ...T.label, color: C.mute },
   totalValue: { ...T.amountLg, color: C.text },
+  cryptoRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "baseline",
+    marginTop: S.md,
+  },
+  cryptoUnits: { ...T.amount, color: C.text },
+  cryptoRate: { ...T.caption, color: C.mute },
+  rateMoved: { ...T.caption, color: C.orange, marginTop: S.sm, lineHeight: 17 },
   vatNote: { ...T.caption, color: C.mute, marginTop: S.sm },
   footNote: { ...T.caption, color: C.mute, lineHeight: 17, paddingHorizontal: S.xs },
 });

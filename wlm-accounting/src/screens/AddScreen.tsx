@@ -8,6 +8,7 @@ import Button from "../components/Button";
 import Field from "../components/Field";
 import CurrencyInput from "../components/CurrencyInput";
 import DateField from "../components/DateField";
+import SegmentedControl from "../components/SegmentedControl";
 import { useToast } from "../components/Toast";
 import { useLedger } from "../lib/LedgerContext";
 import {
@@ -17,18 +18,27 @@ import {
   Txn,
   accountName,
   isReasonableDate,
+  recipesFor,
 } from "../lib/accounting";
-import { fmt, parseAmount, todayISO } from "../lib/format";
+import { findAsset, zarForUnits } from "../lib/crypto";
+import { abs, fmt, parseAmount, todayISO } from "../lib/format";
 import { C, R, S, T } from "../lib/theme";
 import { TabParamList, TabScreenNavigation } from "../navigation/routes";
 
 type AddRoute = RouteProp<TabParamList, "Add">;
+type Money = "rands" | "crypto";
+
+const MONEY_KINDS: { id: Money; label: string }[] = [
+  { id: "rands", label: "Rands" },
+  { id: "crypto", label: "Crypto" },
+];
 
 export default function AddScreen() {
   const nav = useNavigation<TabScreenNavigation<"Add">>();
   const route = useRoute<AddRoute>();
   const toast = useToast();
-  const { accounts, manualTxns, addTxn, updateTxn, openingBank, setOpeningBank } = useLedger();
+  const { accounts, manualTxns, addTxn, updateTxn, openingBank, setOpeningBank, settings } =
+    useLedger();
 
   const editId = route.params?.editId;
   const editing = useMemo(
@@ -36,18 +46,29 @@ export default function AddScreen() {
     [editId, manualTxns]
   );
 
+  const [money, setMoney] = useState<Money>("rands");
   const [recipeId, setRecipeId] = useState(RECIPES[0].id);
   const [pickedAccountId, setPickedAccountId] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
   const [desc, setDesc] = useState("");
   const [date, setDate] = useState(todayISO());
-  const [errors, setErrors] = useState<{ amount?: string; desc?: string }>({});
+  const [errors, setErrors] = useState<{ amount?: string; desc?: string; units?: string }>({});
+
+  // Coins: the units are the fact the owner has in front of them from Binance,
+  // and the rand value follows from the rate that day. Both are entered and the
+  // rate is shown as what they imply — see lib/crypto for why it isn't stored.
+  const [assetSymbol, setAssetSymbol] = useState(settings.crypto.assets[0]?.symbol ?? "");
+  const [units, setUnits] = useState("");
+  const [zarTouched, setZarTouched] = useState(false);
 
   const [openingInput, setOpeningInput] = useState(String(openingBank));
+
+  const visibleRecipes = useMemo(() => recipesFor(money), [money]);
 
   // Load an existing entry when the Ledger sends us here to edit one.
   useEffect(() => {
     if (!editing) return;
+    setMoney(editing.crypto ? "crypto" : "rands");
     setRecipeId(editing.recipe);
     const recipe = RECIPES.find((r) => r.id === editing.recipe);
     if (recipe?.pick) {
@@ -56,11 +77,23 @@ export default function AddScreen() {
     setAmount(String(editing.amount));
     setDesc(editing.desc);
     setDate(editing.date);
+    if (editing.crypto) {
+      setAssetSymbol(editing.crypto.asset);
+      setUnits(String(editing.crypto.units));
+      // The rand figure is the one that was saved, not one to re-derive from
+      // today's rate — the entry happened at the rate it happened at.
+      setZarTouched(true);
+    }
   }, [editing]);
 
   const recipe = useMemo<Recipe>(
-    () => RECIPES.find((r) => r.id === recipeId) ?? RECIPES[0],
-    [recipeId]
+    () => RECIPES.find((r) => r.id === recipeId) ?? visibleRecipes[0] ?? RECIPES[0],
+    [recipeId, visibleRecipes]
+  );
+
+  const asset = useMemo(
+    () => findAsset(settings.crypto, assetSymbol),
+    [settings.crypto, assetSymbol]
   );
 
   const pickOptions = useMemo<Account[]>(() => {
@@ -73,6 +106,8 @@ export default function AddScreen() {
     setDesc("");
     setDate(todayISO());
     setPickedAccountId(null);
+    setUnits("");
+    setZarTouched(false);
     setErrors({});
   };
 
@@ -80,6 +115,29 @@ export default function AddScreen() {
     setRecipeId(r.id);
     setPickedAccountId(null);
   };
+
+  const selectMoney = (next: Money) => {
+    setMoney(next);
+    const first = recipesFor(next)[0];
+    if (first) setRecipeId(first.id);
+    setPickedAccountId(null);
+  };
+
+  /** Typing coins fills the rands in at the stored rate, until that is edited. */
+  const changeUnits = (text: string) => {
+    setUnits(text);
+    const n = parseAmount(text);
+    if (zarTouched || !asset || asset.rateZar <= 0) return;
+    if (!Number.isFinite(n) || n <= 0) return;
+    setAmount(abs(zarForUnits(n, asset.rateZar)));
+  };
+
+  const unitsValue = parseAmount(units);
+  const amountValue = parseAmount(amount);
+  const impliedRate =
+    Number.isFinite(unitsValue) && unitsValue > 0 && Number.isFinite(amountValue) && amountValue > 0
+      ? amountValue / unitsValue
+      : null;
 
   // The preview is the honest part of this screen: it shows exactly which
   // accounts move, so nothing is booked that the user didn't see first.
@@ -92,15 +150,26 @@ export default function AddScreen() {
   const handleSave = () => {
     const next: typeof errors = {};
     const numericAmount = parseAmount(amount);
+    const numericUnits = parseAmount(units);
+    const isCrypto = !!recipe.crypto;
 
     if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
-      next.amount = "Enter an amount greater than zero.";
+      next.amount = isCrypto
+        ? "Enter what those coins were worth in rands."
+        : "Enter an amount greater than zero.";
+    }
+    if (isCrypto && (!Number.isFinite(numericUnits) || numericUnits <= 0)) {
+      next.units = "Enter how many coins moved.";
     }
     if (!desc.trim()) next.desc = "Give this transaction a description.";
     setErrors(next);
 
     if (Object.keys(next).length) {
       toast.show("Check the highlighted fields", "error");
+      return;
+    }
+    if (isCrypto && !assetSymbol.trim()) {
+      toast.show("Pick which coin this was", "error");
       return;
     }
     if (recipe.pick && !pickedAccountId) {
@@ -120,6 +189,9 @@ export default function AddScreen() {
       debit: preview.debit,
       credit: preview.credit,
       recipe: recipe.id,
+      ...(isCrypto
+        ? { crypto: { asset: assetSymbol.trim().toUpperCase(), units: numericUnits } }
+        : {}),
     };
 
     if (editing) {
@@ -143,6 +215,8 @@ export default function AddScreen() {
     toast.show("Opening bank balance updated");
   };
 
+  const namedAssets = settings.crypto.assets.filter((a) => !!a.symbol.trim());
+
   return (
     <KeyboardAvoidingView
       style={styles.screen}
@@ -159,9 +233,11 @@ export default function AddScreen() {
         />
 
         <View style={styles.body}>
+          <SegmentedControl options={MONEY_KINDS} value={money} onChange={selectMoney} />
+
           <Card index={0} title="WHAT HAPPENED?">
             <View style={styles.options}>
-              {RECIPES.map((r) => {
+              {visibleRecipes.map((r) => {
                 const active = r.id === recipeId;
                 return (
                   <Pressable
@@ -216,16 +292,78 @@ export default function AddScreen() {
             </Card>
           )}
 
+          {!!recipe.crypto && (
+            <Card index={1} title="WHICH COIN, AND HOW MANY?">
+              {namedAssets.length === 0 ? (
+                <Text style={styles.note}>
+                  No coins are set up yet. Add one under Settings → Crypto first.
+                </Text>
+              ) : (
+                <View style={styles.chips}>
+                  {namedAssets.map((a) => {
+                    const active = a.symbol === assetSymbol;
+                    return (
+                      <Pressable
+                        key={a.symbol}
+                        onPress={() => setAssetSymbol(a.symbol)}
+                        style={[styles.chip, active && styles.chipActive]}
+                      >
+                        <Text style={[styles.chipLabel, active && styles.chipLabelOn]}>
+                          {a.symbol}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              )}
+              <View style={styles.spacer} />
+              <Field
+                label={`UNITS${assetSymbol ? ` (${assetSymbol})` : ""}`}
+                value={units}
+                onChangeText={changeUnits}
+                placeholder="0.00"
+                keyboardType="decimal-pad"
+                error={errors.units}
+                mono
+              />
+              <Text style={styles.note}>
+                {asset && asset.rateZar > 0
+                  ? `Rands filled in at R ${abs(asset.rateZar)} per ${asset.symbol} from Settings. If the rate you actually got was different, change the rand amount below — that is the one the books use.`
+                  : "Set a rand rate for this coin in Settings and the rand amount below will fill itself in."}
+              </Text>
+            </Card>
+          )}
+
           <Card index={2}>
-            <Text style={styles.fieldLabel}>AMOUNT</Text>
-            <CurrencyInput value={amount} onChangeText={setAmount} error={errors.amount} />
+            <Text style={styles.fieldLabel}>
+              {recipe.crypto ? "WHAT THAT WAS WORTH IN RANDS" : "AMOUNT"}
+            </Text>
+            <CurrencyInput
+              value={amount}
+              onChangeText={(v) => {
+                if (recipe.crypto) setZarTouched(true);
+                setAmount(v);
+              }}
+              error={errors.amount}
+            />
+            {!!recipe.crypto && (
+              <Text style={styles.rate}>
+                {impliedRate
+                  ? `Works out at R ${abs(impliedRate)} per ${assetSymbol || "coin"}`
+                  : "The rate follows from the two figures — it isn't entered separately."}
+              </Text>
+            )}
 
             <View style={styles.spacer} />
             <Field
               label="DESCRIPTION"
               value={desc}
               onChangeText={setDesc}
-              placeholder="e.g. Antminer S21 sale to J. Smit"
+              placeholder={
+                recipe.crypto
+                  ? "e.g. Deposit to supplier for 2 × S21"
+                  : "e.g. Antminer S21 sale to J. Smit"
+              }
               error={errors.desc}
             />
 
@@ -244,6 +382,14 @@ export default function AddScreen() {
             </Text>
           </View>
 
+          {recipe.crypto === "out" && (
+            <Text style={styles.footNote}>
+              Paying coins out realises whatever the rate has done since they came
+              in. The gain or loss against what those coins cost is worked out and
+              posted to Crypto Gains / (Losses) on its own — you don't enter it.
+            </Text>
+          )}
+
           <Button
             label={editing ? "Save changes" : "Save transaction"}
             onPress={handleSave}
@@ -261,9 +407,9 @@ export default function AddScreen() {
             />
           )}
 
-          {!editing && (
+          {!editing && money === "rands" && (
             <Card index={3} title="OPENING BANK BALANCE">
-              <Text style={styles.note}>
+              <Text style={styles.noteTop}>
                 Set this once. It seeds the FNB account before any transactions are counted.
               </Text>
               <View style={styles.spacer} />
@@ -276,6 +422,14 @@ export default function AddScreen() {
                 style={{ marginTop: S.md }}
               />
             </Card>
+          )}
+
+          {!editing && money === "crypto" && (
+            <Text style={styles.footNote}>
+              Coins already sitting in {settings.crypto.platform || "the exchange"} when
+              these books start go in under "Crypto already on hand" — the units
+              you held and what they were worth that day.
+            </Text>
           )}
         </View>
       </ScrollView>
@@ -327,6 +481,9 @@ const styles = StyleSheet.create({
   },
   previewText: { ...T.small, color: C.mute, flex: 1, lineHeight: 18 },
   previewAccount: { color: C.textDim },
-  note: { ...T.small, color: C.mute, lineHeight: 19 },
+  note: { ...T.small, color: C.mute, lineHeight: 19, marginTop: S.md },
+  noteTop: { ...T.small, color: C.mute, lineHeight: 19 },
+  rate: { ...T.caption, color: C.mute, marginTop: S.sm },
   current: { ...T.amountSm, color: C.textDim, marginTop: S.md },
+  footNote: { ...T.caption, color: C.mute, lineHeight: 17, paddingHorizontal: S.xs },
 });
