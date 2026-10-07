@@ -4,7 +4,7 @@ import { useLedger } from "@engine/LedgerContext";
 import {
   accountName,
   counterAccountId,
-  isMoneyIn,
+  txnFlow,
   monthlyCashFlow,
   sortByDateDesc,
   topExpenses,
@@ -12,13 +12,15 @@ import {
 import { summariseReceivables } from "@engine/invoices";
 import { summariseInventory } from "@engine/inventory";
 import { reconciledToDate } from "@engine/reconcile";
-import { fmt, fmtCompact, fmtDateShort } from "@engine/format";
+import { decimalsFor } from "@engine/crypto";
+import { fmt, fmtCompact, fmtDateShort, fmtUnits } from "@engine/format";
 import Screen from "../components/Screen";
 import { Card, Money, Tile } from "../components/ui";
 import type { View } from "../App";
 
 export default function Dashboard({ onNavigate }: { onNavigate: (v: View) => void }) {
-  const { accounts, txns, docs, movements, reconciliations, balances } = useLedger();
+  const { accounts, txns, docs, movements, reconciliations, balances, cryptoPositions, settings } =
+    useLedger();
 
   const months = useMemo(() => monthlyCashFlow(txns, 6), [txns]);
   const receivables = useMemo(() => summariseReceivables(docs), [docs]);
@@ -126,6 +128,72 @@ export default function Dashboard({ onNavigate }: { onNavigate: (v: View) => voi
           </Card>
         </div>
 
+        {/* The wallet is the one account whose balance can be checked against
+            something outside the books: the units here should be the units on
+            the exchange. The rand column is what they cost, not what they would
+            fetch — a gain is only booked when coins are actually paid out. */}
+        {cryptoPositions.length > 0 && (
+          <Card
+            title={`CRYPTO WALLET — CHECK AGAINST ${(
+              settings.crypto.platform || "the exchange"
+            ).toUpperCase()}`}
+            flush
+          >
+            <table className="data">
+              <thead>
+                <tr>
+                  <th style={{ width: 90 }}>Coin</th>
+                  <th className="right" style={{ width: 170 }}>
+                    On hand
+                  </th>
+                  <th className="right" style={{ width: 160 }}>
+                    Cost
+                  </th>
+                  <th className="right" style={{ width: 150 }}>
+                    Per coin
+                  </th>
+                  <th className="right" style={{ width: 160 }}>
+                    At today's rate
+                  </th>
+                  <th className="right">Unrealised</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cryptoPositions.map((position) => (
+                  <tr key={position.asset}>
+                    <td className="num" style={{ color: "var(--orange)" }}>
+                      {position.asset}
+                    </td>
+                    <td className="right num">
+                      {fmtUnits(position.units, decimalsFor(settings.crypto, position.asset))}
+                    </td>
+                    <td className="right">
+                      <Money value={position.costZar} plain />
+                    </td>
+                    <td className="right">
+                      <Money value={position.avgCostZar} plain />
+                    </td>
+                    <td className="right">
+                      {position.rateZar > 0 ? <Money value={position.marketZar} plain /> : "—"}
+                    </td>
+                    <td className="right">
+                      {position.rateZar > 0 ? <Money value={position.unrealisedZar} /> : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="hint" style={{ padding: "10px 16px 14px" }}>
+              Unrealised movement is shown and not posted — booking it would
+              recognise profit on a rate the business hasn't acted on, and the tax
+              follows the disposal rather than the screen.
+              {cryptoPositions.some((p) => p.unknownAsset)
+                ? " One of these coins is no longer set up under Settings → Crypto."
+                : ""}
+            </div>
+          </Card>
+        )}
+
         <Card
           title="RECENT ENTRIES"
           flush
@@ -153,7 +221,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (v: View) => voi
                   <td className="wide">{t.desc}</td>
                   <td className="muted">{accountName(accounts, counterAccountId(t))}</td>
                   <td className="right">
-                    <Money value={isMoneyIn(t) ? t.amount : -t.amount} />
+                    <Money value={txnFlow(t) === "out" ? -t.amount : t.amount} />
                   </td>
                 </tr>
               ))}

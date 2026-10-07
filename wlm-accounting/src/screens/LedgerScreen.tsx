@@ -10,24 +10,28 @@ import SegmentedControl from "../components/SegmentedControl";
 import EmptyState from "../components/EmptyState";
 import { useToast } from "../components/Toast";
 import { useLedger } from "../lib/LedgerContext";
-import { Txn, filterByPeriod, searchTxns, sortByDateDesc } from "../lib/accounting";
+import { Txn, filterByPeriod, searchTxns, sortByDateDesc, txnFlow } from "../lib/accounting";
 import { PERIOD_OPTIONS, PeriodId, buildPeriod } from "../lib/period";
 import { abs } from "../lib/format";
 import { C, R, S, T } from "../lib/theme";
 import { TabScreenNavigation } from "../navigation/routes";
 
-type Flow = "all" | "in" | "out";
+type Flow = "all" | "in" | "out" | "move";
 
+// "Transfers" are rands turned into coins and back — money the business already
+// had, moving from one of its own pockets to the other. Neither in nor out, and
+// counting one as either is how a set of books starts overstating itself.
 const FLOW_OPTIONS: { id: Flow; label: string }[] = [
   { id: "all", label: "All" },
-  { id: "in", label: "Money in" },
-  { id: "out", label: "Money out" },
+  { id: "in", label: "In" },
+  { id: "out", label: "Out" },
+  { id: "move", label: "Transfers" },
 ];
 
 export default function LedgerScreen() {
   const nav = useNavigation<TabScreenNavigation<"Ledger">>();
   const toast = useToast();
-  const { accounts, txns, removeTxn, settings } = useLedger();
+  const { accounts, txns, docs, removeTxn, settings } = useLedger();
 
   const [query, setQuery] = useState("");
   const [flow, setFlow] = useState<Flow>("all");
@@ -41,14 +45,19 @@ export default function LedgerScreen() {
   const visible = useMemo(() => {
     let rows = filterByPeriod(txns, period);
     if (flow !== "all") {
-      rows = rows.filter((t) => (flow === "in" ? t.debit === "bank" : t.credit === "bank"));
+      rows = rows.filter((t) => txnFlow(t) === flow);
     }
     return sortByDateDesc(searchTxns(rows, accounts, query));
   }, [txns, period, flow, query, accounts]);
 
   const total = useMemo(
     () =>
-      visible.reduce((sum, t) => sum + (t.debit === "bank" ? t.amount : -t.amount), 0),
+      visible.reduce((sum, t) => {
+        const direction = txnFlow(t);
+        if (direction === "in") return sum + t.amount;
+        if (direction === "out") return sum - t.amount;
+        return sum;
+      }, 0),
     [visible]
   );
 
@@ -63,7 +72,19 @@ export default function LedgerScreen() {
 
   const handleEdit = (txn: Txn) => {
     if (txn.sourceDoc) {
-      nav.navigate("DocDetail", { docId: txn.sourceDoc });
+      // Only an invoice has a screen to send them to. A stock movement or a
+      // crypto revaluation tags its source with a prefix, and routing those to
+      // the document screen lands on "that document no longer exists".
+      if (docs.some((d) => d.id === txn.sourceDoc)) {
+        nav.navigate("DocDetail", { docId: txn.sourceDoc });
+        return;
+      }
+      toast.show(
+        txn.sourceDoc.startsWith("txn:")
+          ? "Worked out from another entry — edit that one instead."
+          : "Belongs to a stock movement — change it from the product.",
+        "warning"
+      );
       return;
     }
     nav.navigate("Add", { editId: txn.id });

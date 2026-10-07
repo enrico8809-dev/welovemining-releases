@@ -16,6 +16,7 @@
 // converted to an invoice.
 
 import { Txn } from "./accounting";
+import { CRYPTO_ACCOUNT, CRYPTO_GAINS_ACCOUNT, CryptoAsset, unitsForZar } from "./crypto";
 import { todayISO } from "./format";
 
 export type DocKind = "invoice" | "quote";
@@ -26,6 +27,45 @@ export interface LineItem {
   description: string;
   qty: number;
   unitPrice: number;
+}
+
+/**
+ * The crypto option offered on a document.
+ *
+ * The rate is fixed here and the units are not: the figure a customer was
+ * quoted must not move because a rate in settings was updated afterwards, but
+ * it must follow the document's own total if a line is corrected. So the rate
+ * is stored, the coins are worked out from it, and there is only ever one
+ * version of each.
+ *
+ * The rands remain what is owed. This is a way to pay it, not a second price.
+ */
+export interface DocCrypto {
+  /** Asset symbol, e.g. "USDT". */
+  asset: string;
+  /** Rands per coin, fixed when the document was issued. */
+  rateZar: number;
+  /** The asset's precision, carried along so the quoted figure never shifts. */
+  decimals: number;
+}
+
+/**
+ * How an invoice was actually settled.
+ *
+ * Absent means the ordinary thing: the full amount, into the bank. For crypto
+ * it records the coins that arrived and what they were worth that day, which is
+ * rarely the rand total exactly — the rate moves between issuing an invoice and
+ * being paid for it.
+ */
+export interface DocSettlement {
+  /** The account the payment landed in — "bank" or "crypto". */
+  account: string;
+  /** Crypto only: the symbol of what arrived. */
+  asset?: string;
+  /** Crypto only: how many coins arrived. */
+  units?: number;
+  /** Crypto only: what those coins were worth in rands on the day. */
+  zar?: number;
 }
 
 export interface BusinessDoc {
@@ -40,6 +80,10 @@ export interface BusinessDoc {
   status: DocStatus;
   /** Set when an invoice is marked paid. */
   paidDate?: string;
+  /** Set to offer payment in coins as well as into the bank. */
+  crypto?: DocCrypto;
+  /** How it was paid. Absent means the full amount, into the bank. */
+  settlement?: DocSettlement;
   /** Set on a quote once it has been turned into an invoice. */
   convertedToId?: string;
   /** The income account the sale is credited to. */
@@ -80,6 +124,25 @@ export function paymentPostingId(docId: string): string {
   return `doc:${docId}:payment`;
 }
 
+export function settlementPostingId(docId: string): string {
+  return `doc:${docId}:settlement`;
+}
+
+/** The coins a document asks for, worked out from its own total and rate. */
+export function cryptoDue(doc: BusinessDoc): number {
+  if (!doc.crypto) return 0;
+  return unitsForZar(docTotal(doc), doc.crypto.rateZar, doc.crypto.decimals);
+}
+
+/** The crypto block to put on a document, from the asset's current settings. */
+export function cryptoOption(asset: CryptoAsset): DocCrypto {
+  return { asset: asset.symbol, rateZar: asset.rateZar, decimals: asset.decimals };
+}
+
+export function isCryptoSettlement(doc: BusinessDoc): boolean {
+  return doc.settlement?.account === CRYPTO_ACCOUNT && typeof doc.settlement.zar === "number";
+}
+
 /**
  * The entry that recognises revenue. Posted once, when an invoice is issued.
  * Quotes never produce this.
@@ -101,22 +164,71 @@ export function buildIssuePosting(doc: BusinessDoc): Txn | null {
 }
 
 /**
- * The entry that settles the receivable. Debits the bank and credits
- * receivables — deliberately never an income account, which is what stops the
- * same sale being counted twice.
+ * The entry that settles the receivable. Credits receivables and debits
+ * whichever account the money landed in — deliberately never an income
+ * account, which is what stops the same sale being counted twice.
+ *
+ * Paid in coins, the amount is what those coins were worth on the day rather
+ * than the rand total of the invoice. The wallet has to carry what actually
+ * arrived or it will never agree with Binance again; whatever that leaves of
+ * the receivable is cleared by the settlement entry below.
  */
 export function buildPaymentPosting(doc: BusinessDoc): Txn | null {
   if (doc.kind !== "invoice" || doc.status !== "paid" || !doc.paidDate) return null;
   const total = docTotal(doc);
   if (total <= 0) return null;
+
+  const crypto = isCryptoSettlement(doc);
+  const amount = crypto ? doc.settlement!.zar! : total;
+  if (amount <= 0) return null;
+
   return {
     id: paymentPostingId(doc.id),
     date: doc.paidDate,
     desc: `${doc.number} paid — ${doc.customer}`,
-    amount: total,
-    debit: "bank",
+    amount,
+    debit: doc.settlement?.account || "bank",
     credit: "receivables",
     recipe: "invoice_paid",
+    sourceDoc: doc.id,
+    ...(crypto && doc.settlement!.units
+      ? { crypto: { asset: doc.settlement!.asset ?? "", units: doc.settlement!.units! } }
+      : {}),
+  };
+}
+
+/**
+ * The gap between what an invoice asked for and what settling it was worth.
+ *
+ * Coins are quoted at one rate and arrive at another, so a R100 000 invoice can
+ * be honestly settled by USDT worth R99 500. The receivable still has to clear
+ * in full — the customer sent what they were asked for and owes nothing — and
+ * the R500 is what the business lost on the rate, not revenue it failed to earn.
+ * So it goes to crypto gains and losses, which is where every other movement in
+ * a rate ends up.
+ *
+ * Without this the receivable sits R500 short forever and the aged-debtors list
+ * fills up with invoices that were paid.
+ */
+export function buildSettlementPosting(doc: BusinessDoc): Txn | null {
+  if (doc.kind !== "invoice" || doc.status !== "paid" || !doc.paidDate) return null;
+  if (!isCryptoSettlement(doc)) return null;
+
+  const total = docTotal(doc);
+  if (total <= 0) return null;
+
+  // Positive: the coins were worth less than the invoice. Negative: more.
+  const shortfall = total - doc.settlement!.zar!;
+  if (Math.abs(shortfall) < 0.005) return null;
+
+  return {
+    id: settlementPostingId(doc.id),
+    date: doc.paidDate,
+    desc: `${doc.number} rate difference on settlement — ${doc.customer}`,
+    amount: Math.abs(shortfall),
+    debit: shortfall > 0 ? CRYPTO_GAINS_ACCOUNT : "receivables",
+    credit: shortfall > 0 ? "receivables" : CRYPTO_GAINS_ACCOUNT,
+    recipe: "crypto_settlement",
     sourceDoc: doc.id,
   };
 }
@@ -130,6 +242,8 @@ export function postingsForDocs(docs: BusinessDoc[]): Txn[] {
     if (issue) out.push(issue);
     const payment = buildPaymentPosting(doc);
     if (payment) out.push(payment);
+    const settlement = buildSettlementPosting(doc);
+    if (settlement) out.push(settlement);
   }
   return out;
 }
@@ -156,10 +270,18 @@ export function newLineItem(): LineItem {
   };
 }
 
-/** Turns an accepted quote into a fresh invoice, keeping the line items. */
+/**
+ * Turns an accepted quote into a fresh invoice, keeping the line items.
+ *
+ * The crypto rate is re-fixed rather than carried over, because a quote accepted
+ * three weeks later would otherwise bill coins at a rate three weeks old. Pass
+ * the asset's current option in; passing nothing keeps the quote's own rate,
+ * which is right when the two happen the same day.
+ */
 export function convertQuoteToInvoice(
   quote: BusinessDoc,
-  docs: BusinessDoc[]
+  docs: BusinessDoc[],
+  crypto?: DocCrypto
 ): BusinessDoc {
   return {
     ...quote,
@@ -170,6 +292,8 @@ export function convertQuoteToInvoice(
     status: "sent",
     paidDate: undefined,
     convertedToId: undefined,
+    crypto: quote.crypto ? crypto ?? quote.crypto : undefined,
+    settlement: undefined,
     items: quote.items.map((i) => ({ ...i, id: newLineItem().id })),
   };
 }

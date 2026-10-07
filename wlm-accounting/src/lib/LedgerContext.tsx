@@ -8,6 +8,11 @@ import React, {
   useState,
 } from "react";
 import { Account, SEED_ACCOUNTS, Txn, computeBalances } from "./accounting";
+import {
+  CryptoPosition,
+  cryptoDisposalPostings,
+  cryptoPositions as positionsOf,
+} from "./crypto";
 import { BusinessDoc, postingsForDocs } from "./invoices";
 import { StockMovement, postingsForMovements } from "./inventory";
 import { Reconciliation } from "./reconcile";
@@ -49,6 +54,8 @@ interface LedgerContextValue {
   openingBank: number;
   settings: Settings;
   balances: Record<string, number>;
+  /** Coins on hand per asset, what they cost and what they're worth now. */
+  cryptoPositions: CryptoPosition[];
   addTxn: (txn: Txn) => Promise<void>;
   /** A whole statement import, applied and saved once. */
   addTxns: (txns: Txn[]) => Promise<void>;
@@ -241,9 +248,9 @@ export function LedgerProvider({
     if (schedule.onReturn(Date.now())) void syncNow();
   }, [cloud, schedule, syncNow]);
 
-  // Invoice and stock postings are derived, never stored — so a document or a
-  // stock move and its ledger entries can't drift apart, and revenue can only
-  // ever be recognised once.
+  // Invoice, stock and crypto postings are derived, never stored — so a
+  // document or a stock move and its ledger entries can't drift apart, and
+  // revenue can only ever be recognised once.
   const liveTxns = useMemo(() => live(ledger.txns), [ledger.txns]);
   const liveDocs = useMemo(() => live(ledger.docs), [ledger.docs]);
   const liveMovements = useMemo(() => live(ledger.movements), [ledger.movements]);
@@ -252,21 +259,29 @@ export function LedgerProvider({
     [ledger.reconciliations]
   );
 
-  const allTxns = useMemo(
-    () => [
+  const allTxns = useMemo(() => {
+    const entered = [
       ...liveTxns,
       ...postingsForDocs(liveDocs),
       ...postingsForMovements(liveMovements, (id) => {
         const product = findProduct(id);
         return product ? productLabel(product) : id;
       }),
-    ],
-    [liveTxns, liveDocs, liveMovements]
-  );
+    ];
+    // Last, and over the whole set: the gain or loss on coins paid out depends
+    // on every receipt of them before it, whether that came from an invoice, a
+    // stock purchase or an entry typed by hand.
+    return [...entered, ...cryptoDisposalPostings(entered)];
+  }, [liveTxns, liveDocs, liveMovements]);
 
   const balances = useMemo(
     () => computeBalances(SEED_ACCOUNTS, allTxns, ledger.openingBank),
     [allTxns, ledger.openingBank]
+  );
+
+  const cryptoPositions = useMemo(
+    () => positionsOf(allTxns, ledger.settings.crypto),
+    [allTxns, ledger.settings.crypto]
   );
 
   const value = useMemo<LedgerContextValue>(
@@ -281,6 +296,7 @@ export function LedgerProvider({
       openingBank: ledger.openingBank,
       settings: ledger.settings,
       balances,
+      cryptoPositions,
       addTxn,
       addTxns,
       updateTxn,
@@ -309,6 +325,7 @@ export function LedgerProvider({
       ledger,
       allTxns,
       balances,
+      cryptoPositions,
       addTxn,
       addTxns,
       updateTxn,

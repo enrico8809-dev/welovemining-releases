@@ -7,14 +7,20 @@ import {
   findRecipe,
   isReasonableDate,
 } from "@engine/accounting";
+import { findAsset, zarForUnits } from "@engine/crypto";
 import { abs, fmt, parseAmount, todayISO } from "@engine/format";
-import { Field, Modal, MoneyInput, Select, TextInput } from "../components/ui";
+import { Field, Modal, MoneyInput, NumberInput, Select, TextInput } from "../components/ui";
 import { DateInput } from "../components/ui";
 
 /**
  * Capture, the way the app has always done it: pick what happened, and the
  * double entry follows. There is no way in this dialog to type a debit and a
  * credit yourself, which is the whole point — the recipe decides both sides.
+ *
+ * A coin entry asks for two figures: the units, which is the fact from the
+ * exchange, and what they were worth in rands that day. The rate is neither
+ * asked for nor stored — it is the one divided by the other, and three numbers
+ * where two will do is three numbers to disagree with each other.
  */
 export default function CaptureDialog({
   existing,
@@ -25,7 +31,7 @@ export default function CaptureDialog({
   onClose: () => void;
   onSaved: (message: string) => void;
 }) {
-  const { accounts, addTxn, updateTxn } = useLedger();
+  const { accounts, addTxn, updateTxn, settings } = useLedger();
 
   const [recipeId, setRecipeId] = useState(existing?.recipe ?? RECIPES[0].id);
   const [amount, setAmount] = useState(existing ? abs(existing.amount) : "");
@@ -39,9 +45,23 @@ export default function CaptureDialog({
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  const namedAssets = settings.crypto.assets.filter((a) => !!a.symbol.trim());
+  const [assetSymbol, setAssetSymbol] = useState(
+    existing?.crypto?.asset ?? namedAssets[0]?.symbol ?? ""
+  );
+  const [units, setUnits] = useState(existing?.crypto?.units ?? 0);
+  // An existing entry keeps the rands it was saved with: it happened at the
+  // rate it happened at, not at today's.
+  const [zarTouched, setZarTouched] = useState(!!existing);
+
   const recipe = useMemo<Recipe>(
     () => findRecipe(recipeId) ?? RECIPES[0],
     [recipeId]
+  );
+
+  const asset = useMemo(
+    () => findAsset(settings.crypto, assetSymbol),
+    [settings.crypto, assetSymbol]
   );
 
   const pickable = useMemo(() => {
@@ -58,10 +78,22 @@ export default function CaptureDialog({
   const credit = recipe.pick === "credit" ? chosenAccount ?? recipe.credit : recipe.credit;
 
   const numeric = parseAmount(amount);
+  const impliedRate = units > 0 && Number.isFinite(numeric) && numeric > 0 ? numeric / units : null;
+
+  /** Entering coins fills the rands in at the stored rate, until that is edited. */
+  const changeUnits = (n: number) => {
+    setUnits(n);
+    if (zarTouched || !asset || asset.rateZar <= 0 || n <= 0) return;
+    setAmount(abs(zarForUnits(n, asset.rateZar)));
+  };
 
   const save = async () => {
     const found: Record<string, string> = {};
+    const isCrypto = !!recipe.crypto;
+
     if (!Number.isFinite(numeric) || numeric <= 0) found.amount = "Enter an amount";
+    if (isCrypto && units <= 0) found.units = "Enter how many coins moved";
+    if (isCrypto && !assetSymbol.trim()) found.units = "Pick which coin this was";
     if (!desc.trim()) found.desc = "Say what it was for";
     if (!isReasonableDate(date)) found.date = "Check the date";
     setErrors(found);
@@ -75,6 +107,7 @@ export default function CaptureDialog({
       debit,
       credit,
       recipe: recipe.id,
+      ...(isCrypto ? { crypto: { asset: assetSymbol.trim().toUpperCase(), units } } : {}),
     };
 
     if (existing) {
@@ -133,12 +166,40 @@ export default function CaptureDialog({
           </Field>
         )}
 
+        {!!recipe.crypto && (
+          <div className="grid cols-2">
+            <Field label="COIN">
+              {namedAssets.length ? (
+                <Select
+                  value={assetSymbol}
+                  onChange={(symbol) => {
+                    setAssetSymbol(symbol);
+                    setZarTouched(false);
+                  }}
+                  options={namedAssets.map((a) => ({ id: a.symbol, label: a.symbol }))}
+                />
+              ) : (
+                <div className="hint">Add a coin under Settings → Crypto first.</div>
+              )}
+            </Field>
+            <Field label="UNITS" error={errors.units}>
+              <NumberInput value={units} onChange={changeUnits} suffix={assetSymbol || "—"} />
+            </Field>
+          </div>
+        )}
+
         <div className="grid cols-2">
-          <Field label="AMOUNT" error={errors.amount}>
+          <Field
+            label={recipe.crypto ? "WORTH IN RANDS ON THE DAY" : "AMOUNT"}
+            error={errors.amount}
+          >
             <MoneyInput
               value={amount}
-              onChange={setAmount}
-              autoFocus
+              onChange={(v) => {
+                if (recipe.crypto) setZarTouched(true);
+                setAmount(v);
+              }}
+              autoFocus={!recipe.crypto}
               invalid={!!errors.amount}
             />
           </Field>
@@ -147,11 +208,24 @@ export default function CaptureDialog({
           </Field>
         </div>
 
+        {!!recipe.crypto && (
+          <div className="hint">
+            {impliedRate
+              ? `Works out at R ${abs(impliedRate)} per ${assetSymbol || "coin"}.`
+              : "The rate follows from the units and the rands — it isn't entered."}
+            {asset && asset.rateZar > 0
+              ? ` Rands filled in at R ${abs(asset.rateZar)} from Settings; change them if the rate you got was different.`
+              : ""}
+          </div>
+        )}
+
         <Field label="DESCRIPTION" error={errors.desc}>
           <TextInput
             value={desc}
             onChange={setDesc}
-            placeholder="e.g. S21 sale — Mining Co"
+            placeholder={
+              recipe.crypto ? "e.g. Deposit to supplier for 2 × S21" : "e.g. S21 sale — Mining Co"
+            }
             invalid={!!errors.desc}
           />
         </Field>
@@ -159,6 +233,9 @@ export default function CaptureDialog({
         <div className="hint">
           {recipe.dir === "in" ? "Money in" : "Money out"} · this posts one debit and one
           matching credit, so the books stay in balance by construction.
+          {recipe.crypto === "out"
+            ? " Paying coins out also posts the gain or loss against what those coins cost — you don't enter that."
+            : ""}
         </div>
       </div>
     </Modal>

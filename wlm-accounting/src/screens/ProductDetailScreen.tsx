@@ -18,7 +18,8 @@ import {
   suggestedPrice,
 } from "../lib/inventory";
 import { categoryLabel, findProduct, productLabel, unitPriceUsd } from "../lib/catalogue";
-import { abs, fmt, todayISO } from "../lib/format";
+import { CRYPTO_ACCOUNT, findAsset } from "../lib/crypto";
+import { abs, fmt, fmtUnits, parseAmount, todayISO } from "../lib/format";
 import { C, R, S, T } from "../lib/theme";
 import { RootStackParamList } from "../navigation/routes";
 import * as haptics from "../lib/haptics";
@@ -38,6 +39,11 @@ export default function ProductDetailScreen() {
   );
   const [date, setDate] = useState(todayISO());
   const [saving, setSaving] = useState(false);
+
+  // Suppliers of this hardware are usually paid in coins, so which pocket the
+  // receipt came out of is a real question rather than an edge case.
+  const [paidWith, setPaidWith] = useState<string>("bank");
+  const [unitsSent, setUnitsSent] = useState("");
 
   const level = useMemo(
     () => computeStockLevels(movements).get(route.params.productId),
@@ -69,11 +75,34 @@ export default function ProductDetailScreen() {
 
   const rateMissing = !settings.landedCost.usdZarRate;
 
+  const payAsset = paidWith === "bank" ? undefined : findAsset(settings.crypto, paidWith);
+
+  /**
+   * Coins to suggest for this receipt.
+   *
+   * A stablecoin is priced in dollars and so is the supplier, so the dollar
+   * total is the coin total — which is why this is a suggestion and not a
+   * calculation: for anything that isn't a dollar stablecoin it is nonsense,
+   * and the figure that matters is what was actually sent.
+   */
+  const suggestedUnits = payAsset ? cost.totalUsd : 0;
+
   const stockIn = async () => {
     if (rateMissing) {
       toast.show("Set the USD/ZAR rate in Settings first", "error");
       return;
     }
+
+    let crypto: StockMovement["crypto"];
+    if (payAsset) {
+      const units = parseAmount(unitsSent || String(suggestedUnits));
+      if (!Number.isFinite(units) || units <= 0) {
+        toast.show(`Enter how many ${payAsset.symbol} were sent`, "error");
+        return;
+      }
+      crypto = { asset: payAsset.symbol, units };
+    }
+
     setSaving(true);
     const movement: StockMovement = {
       id: newMovementId(),
@@ -82,11 +111,18 @@ export default function ProductDetailScreen() {
       qty,
       date,
       valueZar: cost.totalZar,
-      note: `$${abs(cost.totalUsd)} @ ${settings.landedCost.usdZarRate}`,
+      note: payAsset
+        ? `${fmtUnits(crypto!.units, payAsset.decimals)} ${payAsset.symbol}`
+        : `$${abs(cost.totalUsd)} @ ${settings.landedCost.usdZarRate}`,
+      ...(payAsset ? { paidFrom: CRYPTO_ACCOUNT, crypto } : {}),
     };
     await addMovement(movement);
     setSaving(false);
-    toast.show(`Added ${qty} × ${productLabel(product)} at ${fmt(cost.totalZar)}`);
+    toast.show(
+      payAsset
+        ? `Added ${qty} × ${productLabel(product)} — paid in ${payAsset.symbol}`
+        : `Added ${qty} × ${productLabel(product)} at ${fmt(cost.totalZar)}`
+    );
     nav.goBack();
   };
 
@@ -254,7 +290,63 @@ export default function ProductDetailScreen() {
           </View>
         </Card>
 
-        <Card index={5} title="MOVEMENT DATE">
+        <Card index={5} title="PAID WITH">
+          <Text style={styles.note}>
+            Which account this receipt came out of. The miners are valued in
+            rands either way — at {fmt(cost.totalZar)}, what they cost.
+          </Text>
+          <View style={styles.payRow}>
+            <Pressable
+              onPress={() => setPaidWith("bank")}
+              style={[styles.payChip, paidWith === "bank" && styles.payChipOn]}
+            >
+              <Text style={[styles.payLabel, paidWith === "bank" && styles.payLabelOn]}>
+                FNB
+              </Text>
+            </Pressable>
+            {settings.crypto.assets
+              .filter((a) => !!a.symbol.trim())
+              .map((a) => {
+                const active = paidWith === a.symbol;
+                return (
+                  <Pressable
+                    key={a.symbol}
+                    onPress={() => {
+                      setPaidWith(a.symbol);
+                      setUnitsSent("");
+                    }}
+                    style={[styles.payChip, active && styles.payChipOn]}
+                  >
+                    <Text style={[styles.payLabel, active && styles.payLabelOn]}>
+                      {a.symbol}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+          </View>
+
+          {!!payAsset && (
+            <>
+              <View style={{ height: S.md }} />
+              <Field
+                label={`${payAsset.symbol} SENT`}
+                value={unitsSent}
+                onChangeText={setUnitsSent}
+                placeholder={fmtUnits(suggestedUnits, payAsset.decimals)}
+                keyboardType="decimal-pad"
+                mono
+              />
+              <Text style={styles.note}>
+                Leave it blank to use ${abs(cost.totalUsd)} — the dollar total,
+                which is the coin total for a dollar stablecoin. The gain or loss
+                against what those coins cost you is worked out and posted on its
+                own.
+              </Text>
+            </>
+          )}
+        </Card>
+
+        <Card index={6} title="MOVEMENT DATE">
           <DateField value={date} onChange={setDate} />
         </Card>
 
@@ -277,7 +369,7 @@ export default function ProductDetailScreen() {
         )}
 
         {productMovements.length > 0 && (
-          <Card index={6} title="RECENT MOVEMENTS">
+          <Card index={7} title="RECENT MOVEMENTS">
             {productMovements.map((m) => (
               <View key={m.id} style={styles.movementRow}>
                 <View
@@ -378,5 +470,17 @@ const styles = StyleSheet.create({
   movementDot: { width: 7, height: 7, borderRadius: 3.5 },
   movementText: { ...T.small, color: C.text, flex: 1 },
   movementDate: { ...T.caption, color: C.mute },
+  payRow: { flexDirection: "row", flexWrap: "wrap", gap: S.sm, marginTop: S.md },
+  payChip: {
+    paddingVertical: S.sm,
+    paddingHorizontal: S.md,
+    borderRadius: R.pill,
+    backgroundColor: C.panel2,
+    borderWidth: 1,
+    borderColor: C.line,
+  },
+  payChipOn: { borderColor: C.orange, backgroundColor: C.panel3 },
+  payLabel: { ...T.small, color: C.mute },
+  payLabelOn: { color: C.orange },
   movementValue: { ...T.amountSm, color: C.textDim, minWidth: 84, textAlign: "right" },
 });

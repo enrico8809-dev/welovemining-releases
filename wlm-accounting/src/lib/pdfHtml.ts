@@ -5,10 +5,11 @@
 // Windows app and one from the phone are the same document — while each
 // platform turns it into a PDF its own way.
 
-import { BusinessDoc, docTotal, lineTotal, statusLabel } from "./invoices";
+import { BusinessDoc, cryptoDue, docTotal, lineTotal, statusLabel } from "./invoices";
 import { Settings } from "./ledgerModel";
-import { abs, fmtDate } from "./format";
+import { abs, fmtBracketed, fmtDate, fmtUnits } from "./format";
 import { Account, TrialBalanceRow, ProfitAndLoss } from "./accounting";
+import { findAsset } from "./crypto";
 
 // The PDF is deliberately plain-light rather than the app's dark theme: these
 // get printed, emailed and forwarded to accountants, and a near-black page
@@ -53,6 +54,11 @@ const CSS = `
   .bank-grid .v { font-weight: 600; }
   .foot { margin-top: 30px; padding-top: 14px; border-top: 1px solid #E5E5E5;
           color: #888; font-size: 10px; text-align: center; }
+  .addr { font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 11px;
+          word-break: break-all; line-height: 1.4; }
+  .bank-grid .wide { width: 100%; }
+  .warn { margin-top: 10px; padding: 8px 10px; background: #FFF4E5; border: 1px solid #F7C77A;
+          color: #8A5300; font-size: 10px; line-height: 1.45; }
 `;
 
 function esc(s: string): string {
@@ -81,6 +87,73 @@ function letterhead(settings: Settings): string {
       ${logo ? `<img class="logo" src="${logo}" />` : ""}
       <div class="brand-name">${esc(settings.companyName)}</div>
       <div class="brand-meta">${esc(meta)}</div>
+    </div>`;
+}
+
+/**
+ * The crypto panel — what to send, on which chain, and where.
+ *
+ * Two things it is careful about, because both cost real money:
+ *
+ * The network is given as much weight as the address. USDT sent to a TRC20
+ * address over ERC20 is gone, and it is the customer who has to get it right
+ * off a piece of paper.
+ *
+ * The rand total stays the amount due, with the coin figure presented as a way
+ * of paying it at a stated rate. Printing two prices invites an argument about
+ * which one is owed when the rate has moved by the time it is paid.
+ *
+ * On a quote the figure is shown but the address is not: a quote is a price, and
+ * nothing is owed yet. The address appears on the invoice, which is the document
+ * that asks to be paid.
+ */
+function cryptoBlock(doc: BusinessDoc, settings: Settings): string {
+  if (!doc.crypto || !settings.crypto?.offerOnDocs) return "";
+  if (doc.status === "paid" || doc.status === "void") return "";
+
+  const asset = findAsset(settings.crypto, doc.crypto.asset);
+  const network = asset?.network ?? "";
+  const units = cryptoDue(doc);
+  if (units <= 0) return "";
+
+  const isInvoice = doc.kind === "invoice";
+  const symbol = doc.crypto.asset;
+  const showAddress = isInvoice && !!asset?.address.trim();
+
+  const fixedFor = isInvoice
+    ? "at the rate shown"
+    : `at the rate shown, held for ${settings.quoteValidityDays} days`;
+
+  return `
+    <div class="panel">
+      <h3>Or pay in ${esc(symbol)}${
+        settings.crypto.platform ? ` · ${esc(settings.crypto.platform)}` : ""
+      }</h3>
+      <div class="bank-grid">
+        <div><div class="k">Amount</div><div class="v">${fmtUnits(units, doc.crypto.decimals)} ${esc(symbol)}</div></div>
+        <div><div class="k">Rate used</div><div class="v">R ${abs(doc.crypto.rateZar)} per ${esc(symbol)}</div></div>
+        ${network ? `<div><div class="k">Network</div><div class="v">${esc(network)}</div></div>` : ""}
+        <div><div class="k">Reference</div><div class="v">${esc(doc.number)}</div></div>
+        ${
+          showAddress
+            ? `<div class="wide"><div class="k">Deposit address</div><div class="v addr">${esc(asset!.address)}</div></div>`
+            : ""
+        }
+        ${
+          showAddress && asset!.memo.trim()
+            ? `<div class="wide"><div class="k">Memo / tag — required</div><div class="v addr">${esc(asset!.memo)}</div></div>`
+            : ""
+        }
+      </div>
+      <div class="warn">
+        The amount due is <strong>R ${abs(docTotal(doc))}</strong>. The ${esc(symbol)}
+        figure above is that amount ${fixedFor}.
+        ${
+          network
+            ? `Send ${esc(symbol)} on the <strong>${esc(network)}</strong> network only — sent on any other network it cannot be recovered.`
+            : ""
+        }
+      </div>
     </div>`;
 }
 
@@ -162,6 +235,7 @@ export function buildDocHtml(doc: BusinessDoc, settings: Settings): string {
     </table>
 
     ${bankBlock}
+    ${cryptoBlock(doc, settings)}
     ${doc.notes ? `<div class="panel"><h3>Notes</h3><div>${esc(doc.notes)}</div></div>` : ""}
 
     <div class="foot">
@@ -195,7 +269,12 @@ export function buildReportHtml(
 
 export function profitAndLossHtml(pnl: ProfitAndLoss): string {
   const lines = (rows: { account: Account; amount: number }[]) =>
-    rows.map((l) => `<tr><td>${esc(l.account.name)}</td><td class="num">R ${abs(l.amount)}</td></tr>`).join("");
+    rows
+      .map(
+        (l) =>
+          `<tr><td>${esc(l.account.name)}</td><td class="num">R ${fmtBracketed(l.amount)}</td></tr>`
+      )
+      .join("");
 
   return `
     <table>

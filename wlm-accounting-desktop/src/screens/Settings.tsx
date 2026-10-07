@@ -3,7 +3,14 @@ import { Cloud, Download, Image as ImageIcon, Plus, Trash2, Upload } from "lucid
 import { useLedger } from "@engine/LedgerContext";
 import { normaliseLedger } from "@engine/ledgerModel";
 import { CloudUser, claimServer, checkServer, inviteUser, listUsers, removeUser, signIn } from "@engine/sync";
-import { MONTHS, abs, fmt, fmtDate } from "@engine/format";
+import {
+  CryptoAsset,
+  assetReadiness,
+  decimalsFor,
+  newCryptoAsset,
+  rateAgeDays,
+} from "@engine/crypto";
+import { MONTHS, abs, fmt, fmtDate, fmtUnits, todayISO } from "@engine/format";
 import Screen from "../components/Screen";
 import {
   Card,
@@ -30,6 +37,7 @@ export default function Settings() {
     connectCloud,
     disconnectCloud,
     lastSync,
+    cryptoPositions,
   } = useLedger();
   const toast = useToast();
 
@@ -43,6 +51,16 @@ export default function Settings() {
 
   const set = (patch: Parameters<typeof updateSettings>[0]) => updateSettings(patch);
   const bank = settings.bank;
+  const crypto = settings.crypto;
+
+  const setCrypto = (patch: Partial<typeof crypto>) => set({ crypto: { ...crypto, ...patch } });
+
+  const setAsset = (index: number, patch: Partial<CryptoAsset>) =>
+    setCrypto({ assets: crypto.assets.map((a, i) => (i === index ? { ...a, ...patch } : a)) });
+
+  /** Changing a rate stamps the day, so a stale one can be seen to be stale. */
+  const setRate = (index: number, rateZar: number) =>
+    setAsset(index, { rateZar, rateSetOn: todayISO() });
   const landed = settings.landedCost;
 
   const backup = async () => {
@@ -168,6 +186,143 @@ export default function Settings() {
               <TextInput value={bank.swift} onChange={(v) => set({ bank: { ...bank, swift: v } })} />
             </Field>
           </div>
+        </Card>
+
+        <Card
+          title="CRYPTO"
+          action={
+            <button className="btn small ghost" onClick={() => setCrypto({ assets: [...crypto.assets, newCryptoAsset()] })}>
+              <Plus size={13} /> Add a coin
+            </button>
+          }
+        >
+          <div className="hint" style={{ marginBottom: 12 }}>
+            Coins the business takes and pays in. Invoices stay in rands — this is
+            how one can be settled. SARS treats a coin as an asset rather than a
+            currency, so the rand figure is still what was earned, and a gain is
+            only realised when coins are paid out.
+          </div>
+
+          <div className="grid cols-3">
+            <Field label="OFFER CRYPTO ON DOCUMENTS">
+              <Select
+                value={crypto.offerOnDocs ? "on" : "off"}
+                onChange={(v) => setCrypto({ offerOnDocs: v === "on" })}
+                options={[
+                  { id: "on", label: "Yes — show a pay-in-coins panel" },
+                  { id: "off", label: "No — rands only" },
+                ]}
+              />
+            </Field>
+            <Field label="EXCHANGE / WALLET">
+              <TextInput
+                value={crypto.platform}
+                onChange={(v) => setCrypto({ platform: v })}
+                placeholder="Binance"
+              />
+            </Field>
+          </div>
+
+          {crypto.assets.map((asset, index) => {
+            const missing = assetReadiness(asset);
+            const age = rateAgeDays(asset);
+            const held = cryptoPositions.find(
+              (position) => position.asset.toUpperCase() === asset.symbol.trim().toUpperCase()
+            );
+            return (
+              <div key={index} className="card" style={{ marginTop: 14 }}>
+                <div className="card-head">
+                  <span className="card-title" style={{ color: "var(--orange)" }}>
+                    {asset.symbol.trim() || `COIN ${index + 1}`}
+                  </span>
+                  <span className="spacer" />
+                  {crypto.assets.length > 1 && (
+                    <button
+                      className="btn small ghost"
+                      onClick={() => setCrypto({ assets: crypto.assets.filter((_, i) => i !== index) })}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid cols-4">
+                  <Field label="SYMBOL">
+                    <TextInput
+                      value={asset.symbol}
+                      onChange={(v) => setAsset(index, { symbol: v.toUpperCase() })}
+                      placeholder="USDT"
+                    />
+                  </Field>
+                  <Field label="NAME">
+                    <TextInput
+                      value={asset.name}
+                      onChange={(v) => setAsset(index, { name: v })}
+                      placeholder="Tether USD"
+                    />
+                  </Field>
+                  {/* As important as the address: USDT sent to a TRC20 address
+                      over ERC20 cannot be recovered, and it is the customer who
+                      has to get it right off a printed page. */}
+                  <Field label="NETWORK">
+                    <TextInput
+                      value={asset.network}
+                      onChange={(v) => setAsset(index, { network: v })}
+                      placeholder="TRC20 (Tron)"
+                    />
+                  </Field>
+                  <Field label="DECIMALS SHOWN">
+                    <NumberInput
+                      value={asset.decimals}
+                      onChange={(n) => setAsset(index, { decimals: Math.max(0, Math.min(18, Math.round(n))) })}
+                    />
+                  </Field>
+                </div>
+
+                <div className="grid cols-3">
+                  <Field label="DEPOSIT ADDRESS">
+                    <TextInput
+                      value={asset.address}
+                      onChange={(v) => setAsset(index, { address: v.trim() })}
+                      placeholder="Paste from Binance → Deposit"
+                    />
+                  </Field>
+                  <Field label="MEMO / TAG (ONLY IF REQUIRED)">
+                    <TextInput
+                      value={asset.memo}
+                      onChange={(v) => setAsset(index, { memo: v.trim() })}
+                      placeholder="Usually blank"
+                    />
+                  </Field>
+                  <Field label={`RANDS PER ${asset.symbol || "COIN"}`}>
+                    <NumberInput value={asset.rateZar} onChange={(n) => setRate(index, n)} suffix="R" />
+                  </Field>
+                </div>
+
+                <div className="hint">
+                  {age === null
+                    ? "Typed by you — Binance has no rand pair to read a price from, and the rate that counts is the one you actually got."
+                    : age === 0
+                      ? "Rate set today."
+                      : `Rate set ${age} day${age === 1 ? "" : "s"} ago — worth checking before you quote.`}
+                  {missing ? ` ${missing}` : ""}
+                </div>
+
+                {!!held && (
+                  <div className="hint">
+                    Holding {fmtUnits(held.units, decimalsFor(crypto, held.asset))} {held.asset},
+                    carried at {fmt(held.costZar)} ({fmt(held.avgCostZar)} each)
+                    {held.rateZar > 0
+                      ? ` · worth ${fmt(held.marketZar)} at the rate above, ${
+                          held.unrealisedZar >= 0 ? "up" : "down"
+                        } ${fmt(Math.abs(held.unrealisedZar))} — shown, not posted`
+                      : ""}
+                    .
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </Card>
 
         <Card title="OPENING BANK BALANCE">

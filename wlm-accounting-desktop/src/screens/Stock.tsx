@@ -11,9 +11,20 @@ import {
   summariseInventory,
 } from "@engine/inventory";
 import { Product, findProduct, productLabel } from "@engine/catalogue";
-import { abs, fmt, fmtDateShort, todayISO } from "@engine/format";
+import { CRYPTO_ACCOUNT, findAsset } from "@engine/crypto";
+import { abs, fmt, fmtDateShort, fmtUnits, todayISO } from "@engine/format";
 import Screen from "../components/Screen";
-import { Card, DateInput, EmptyState, Field, Modal, Money, NumberInput, Tile } from "../components/ui";
+import {
+  Card,
+  DateInput,
+  EmptyState,
+  Field,
+  Modal,
+  Money,
+  NumberInput,
+  Select,
+  Tile,
+} from "../components/ui";
 import ProductPicker from "./ProductPicker";
 import { useToast } from "../components/Toast";
 
@@ -247,7 +258,24 @@ function ReceiveDialog({
   const [qty, setQty] = useState(1);
   const [date, setDate] = useState(todayISO());
 
+  // Suppliers of this hardware are usually paid in coins, so which pocket the
+  // receipt came out of is a real question rather than an edge case.
+  const [paidWith, setPaidWith] = useState("bank");
+  const [unitsSent, setUnitsSent] = useState(0);
+
   const cost = computeLandedCost(product, Math.max(qty, 0), settings.landedCost);
+
+  const named = settings.crypto.assets.filter((a) => !!a.symbol.trim());
+  const payAsset = paidWith === "bank" ? undefined : findAsset(settings.crypto, paidWith);
+
+  /**
+   * Coins to suggest. A dollar stablecoin and a dollar-priced supplier make the
+   * dollar total the coin total — which is why this is a suggestion and not a
+   * calculation: for anything else it is nonsense, and what matters is what was
+   * actually sent.
+   */
+  const suggestedUnits = payAsset ? cost.totalUsd : 0;
+  const units = unitsSent > 0 ? unitsSent : suggestedUnits;
 
   return (
     <Modal
@@ -267,7 +295,15 @@ function ReceiveDialog({
                 qty,
                 date,
                 valueZar: cost.totalZar,
-                note: `${qty} × $${abs(cost.unitUsd)} landed`,
+                note: payAsset
+                  ? `${fmtUnits(units, payAsset.decimals)} ${payAsset.symbol}`
+                  : `${qty} × $${abs(cost.unitUsd)} landed`,
+                ...(payAsset && units > 0
+                  ? {
+                      paidFrom: CRYPTO_ACCOUNT,
+                      crypto: { asset: payAsset.symbol, units },
+                    }
+                  : {}),
               })
             }
           >
@@ -280,14 +316,41 @@ function ReceiveDialog({
       }
     >
       <div className="stack">
-        <div className="grid cols-2">
+        <div className="grid cols-3">
           <Field label="QUANTITY">
             <NumberInput value={qty} onChange={setQty} />
           </Field>
           <Field label="DATE">
             <DateInput value={date} onChange={setDate} />
           </Field>
+          <Field label="PAID WITH">
+            <Select
+              value={paidWith}
+              onChange={(v) => {
+                setPaidWith(v);
+                setUnitsSent(0);
+              }}
+              options={[
+                { id: "bank", label: settings.bank.bankName || "FNB" },
+                ...named.map((a) => ({ id: a.symbol, label: a.symbol })),
+              ]}
+            />
+          </Field>
         </div>
+
+        {!!payAsset && (
+          <div className="grid cols-2">
+            <Field label={`${payAsset.symbol} SENT`}>
+              <NumberInput value={unitsSent} onChange={setUnitsSent} suffix={payAsset.symbol} />
+            </Field>
+            <div className="hint" style={{ alignSelf: "end" }}>
+              Leave it at zero to use {fmtUnits(suggestedUnits, payAsset.decimals)} — the
+              dollar total, which is the coin total for a dollar stablecoin. The
+              miners are still valued in rands at {fmt(cost.totalZar)}, and the gain
+              or loss on the coins is worked out and posted on its own.
+            </div>
+          </div>
+        )}
 
         <Card title="LANDED COST">
           <table className="data">

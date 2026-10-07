@@ -30,6 +30,35 @@ export function fmtWhole(n: number): string {
   return group(String(Math.round(Math.abs(n))));
 }
 
+/**
+ * A quantity of a coin: "5,399.57" or "0.01234567".
+ *
+ * Grouped by hand for the same reason amounts are — see abs() — and padded out
+ * to the asset's own precision, because 0.1 BTC and 0.10000000 BTC are the same
+ * number but only the second one reads as a balance.
+ */
+export function fmtUnits(n: number, decimals = 2): string {
+  const places = Math.max(0, Math.min(18, Math.round(decimals)));
+  const [whole, frac] = Math.abs(n).toFixed(places).split(".");
+  return frac ? `${group(whole)}.${frac}` : group(whole);
+}
+
+/**
+ * A bare amount for a report column, negatives in brackets: "(500.00)".
+ *
+ * abs() drops the sign, which is right for a column where every figure is
+ * positive by construction — and wrong the moment one isn't. A loss on crypto
+ * is a negative income line, and printed through abs() it reads as income of
+ * that size while the total it belongs to has gone *down* by it. A line that
+ * disagrees with its own total is how a set of books stops being believed.
+ *
+ * Brackets rather than a minus sign because that is what the accountant reading
+ * it expects, and because the account is called Crypto Gains / (Losses).
+ */
+export function fmtBracketed(n: number): string {
+  return n < 0 ? `(${abs(n)})` : abs(n);
+}
+
 /** Signed amount with an explicit +/− for ledger rows. */
 export function fmtSigned(n: number): string {
   if (n === 0) return `R ${abs(n)}`;

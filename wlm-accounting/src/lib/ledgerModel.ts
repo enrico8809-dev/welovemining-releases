@@ -6,6 +6,7 @@
 // a ledger is without agreeing on where it lives.
 
 import { Txn } from "./accounting";
+import { CryptoSettings, DEFAULT_CRYPTO, DEFAULT_CRYPTO_ASSET } from "./crypto";
 import { BusinessDoc } from "./invoices";
 import { DEFAULT_LANDED_COST, LandedCostSettings, StockMovement } from "./inventory";
 import { Reconciliation } from "./reconcile";
@@ -25,6 +26,8 @@ export interface Settings {
   /** Legacy file path from before the logo was stored inline. Migrated on load. */
   logoUri?: string;
   bank: BankDetails;
+  /** The coins the business takes and pays in, and where they land. */
+  crypto: CryptoSettings;
   fyStartMonth: number;
   defaultPaymentTermsDays: number;
   landedCost: LandedCostSettings;
@@ -78,6 +81,7 @@ export const DEFAULT_SETTINGS: Settings = {
   address: "",
   logo: "",
   bank: DEFAULT_BANK,
+  crypto: DEFAULT_CRYPTO,
   fyStartMonth: DEFAULT_FY_START_MONTH,
   defaultPaymentTermsDays: 14,
   landedCost: DEFAULT_LANDED_COST,
@@ -112,6 +116,17 @@ export function normaliseLedger(parsed: unknown): Ledger {
       ...DEFAULT_SETTINGS,
       ...(raw.settings ?? {}),
       bank: { ...DEFAULT_BANK, ...(raw.settings?.bank ?? {}) },
+      crypto: {
+        ...DEFAULT_CRYPTO,
+        ...(raw.settings?.crypto ?? {}),
+        // Each asset is filled out too, so a backup written before a field
+        // existed doesn't come back with an undefined precision and format
+        // every balance as NaN.
+        assets: (raw.settings?.crypto?.assets ?? DEFAULT_CRYPTO.assets).map((a) => ({
+          ...DEFAULT_CRYPTO_ASSET,
+          ...a,
+        })),
+      },
       landedCost: {
         ...DEFAULT_LANDED_COST,
         ...(raw.settings?.landedCost ?? {}),

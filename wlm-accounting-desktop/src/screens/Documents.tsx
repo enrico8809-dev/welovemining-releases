@@ -1,20 +1,23 @@
 import { useMemo, useState } from "react";
-import { FileDown, FileText, Plus } from "lucide-react";
+import { Coins, FileDown, FileText, Plus } from "lucide-react";
 import { useLedger } from "@engine/LedgerContext";
 import {
   BusinessDoc,
   DocKind,
   convertQuoteToInvoice,
+  cryptoOption,
   docTotal,
   isOverdue,
   statusLabel,
   summariseReceivables,
 } from "@engine/invoices";
+import { findAsset } from "@engine/crypto";
 import { buildDocHtml } from "@engine/pdfHtml";
 import { fmt, fmtDateShort, todayISO } from "@engine/format";
 import Screen from "../components/Screen";
 import { Card, EmptyState, Money, Pill, Tile } from "../components/ui";
 import DocEditor from "./DocEditor";
+import SettleDialog from "./SettleDialog";
 import { api } from "../api";
 import { useToast } from "../components/Toast";
 
@@ -22,6 +25,7 @@ export default function Documents({ kind }: { kind: DocKind }) {
   const { docs, saveDoc, removeDoc, settings } = useLedger();
   const toast = useToast();
   const [editing, setEditing] = useState<BusinessDoc | "new" | null>(null);
+  const [settling, setSettling] = useState<BusinessDoc | null>(null);
 
   const rows = useMemo(
     () =>
@@ -40,9 +44,11 @@ export default function Documents({ kind }: { kind: DocKind }) {
   };
 
   const markPaid = async (doc: BusinessDoc) => {
-    await saveDoc({ ...doc, status: "paid", paidDate: todayISO() });
+    await saveDoc({ ...doc, status: "paid", paidDate: todayISO(), settlement: undefined });
     toast.show(`${doc.number} settled — Dr Bank / Cr Receivables. Income is not touched.`);
   };
+
+  const takesCrypto = settings.crypto.assets.some((a) => !!a.symbol.trim());
 
   const issue = async (doc: BusinessDoc) => {
     await saveDoc({ ...doc, status: "sent" });
@@ -54,7 +60,14 @@ export default function Documents({ kind }: { kind: DocKind }) {
   };
 
   const convert = async (quote: BusinessDoc) => {
-    const invoice = convertQuoteToInvoice(quote, docs);
+    // Re-fix the coin rate on the way through: a quote accepted three weeks
+    // later should not bill coins at a three-week-old rate.
+    const asset = quote.crypto ? findAsset(settings.crypto, quote.crypto.asset) : undefined;
+    const invoice = convertQuoteToInvoice(
+      quote,
+      docs,
+      asset && asset.rateZar > 0 ? cryptoOption(asset) : undefined
+    );
     await saveDoc(invoice);
     await saveDoc({ ...quote, status: "accepted", convertedToId: invoice.id });
     toast.show(`${quote.number} became ${invoice.number}`);
@@ -163,7 +176,16 @@ export default function Documents({ kind }: { kind: DocKind }) {
                           )}
                           {kind === "invoice" && doc.status === "sent" && (
                             <button className="btn small" onClick={() => markPaid(doc)}>
-                              Mark paid
+                              {takesCrypto ? "Paid — FNB" : "Mark paid"}
+                            </button>
+                          )}
+                          {kind === "invoice" && doc.status === "sent" && takesCrypto && (
+                            <button
+                              className="btn small"
+                              title="Paid in crypto"
+                              onClick={() => setSettling(doc)}
+                            >
+                              <Coins size={13} /> Paid — crypto
                             </button>
                           )}
                           {kind === "quote" && !doc.convertedToId && (
@@ -206,6 +228,8 @@ export default function Documents({ kind }: { kind: DocKind }) {
             : "A quote is not a transaction. Nothing reaches the books until it becomes an invoice."}
         </div>
       </div>
+
+      {settling && <SettleDialog doc={settling} onClose={() => setSettling(null)} />}
 
       {editing && (
         <DocEditor

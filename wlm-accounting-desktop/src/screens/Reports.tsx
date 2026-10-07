@@ -13,7 +13,7 @@ import {
   profitAndLossHtml,
   trialBalanceHtml,
 } from "@engine/pdfHtml";
-import { abs, fmt } from "@engine/format";
+import { abs, fmt, fmtBracketed } from "@engine/format";
 import Screen from "../components/Screen";
 import { Card, Money, Pill, Tabs } from "../components/ui";
 import { api } from "../api";
@@ -93,7 +93,7 @@ export default function Reports() {
               {pnl.incomeLines.map((line) => (
                 <tr key={line.account.id}>
                   <td className="wide">{line.account.name}</td>
-                  <td className="right num">{abs(line.amount)}</td>
+                  <td className="right num">{fmtBracketed(line.amount)}</td>
                 </tr>
               ))}
               {pnl.incomeLines.length === 0 && (
@@ -114,7 +114,7 @@ export default function Reports() {
               {pnl.expenseLines.map((line) => (
                 <tr key={line.account.id}>
                   <td className="wide">{line.account.name}</td>
-                  <td className="right num">{abs(line.amount)}</td>
+                  <td className="right num">{fmtBracketed(line.amount)}</td>
                 </tr>
               ))}
               {pnl.expenseLines.length === 0 && (
